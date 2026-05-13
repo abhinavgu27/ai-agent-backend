@@ -22,7 +22,7 @@ function App() {
 
     try {
       // Using 127.0.0.1 to avoid DNS resolution issues on Windows
-      const response = await fetch('https://ai-agent-backend-nu.vercel.app/', {
+      const response = await fetch('https://YOUR-RENDER-URL.onrender.com/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: input, history: chatLog })
