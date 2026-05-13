@@ -3,8 +3,15 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from brain import ask
-# Notice the two new imports at the end of this line:
-from database import save_message, get_history, save_file_context, get_all_file_context, get_uploaded_filenames, clear_all_knowledge
+from database import (
+    save_message, 
+    get_history, 
+    save_file_context, 
+    get_all_file_context, 
+    get_uploaded_filenames, 
+    clear_all_knowledge,
+    get_all_sessions
+)
 import json
 import asyncio
 import os
@@ -22,8 +29,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# UPDATED: Added session_id
 class ChatPayload(BaseModel):
     message: str
+    session_id: str = "default"
 
 # ==========================================
 # 📂 FILE UPLOAD ENDPOINT
@@ -31,36 +40,28 @@ class ChatPayload(BaseModel):
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     content = ""
-    
     try:
-        # 1. Read PDF Files
         if file.filename.endswith(".pdf"):
             pdf_reader = PyPDF2.PdfReader(io.BytesIO(await file.read()))
             for page in pdf_reader.pages:
                 extracted = page.extract_text()
                 if extracted:
                     content += extracted + "\n"
-                    
-        # 2. Read Text or Markdown Files
         elif file.filename.endswith((".txt", ".md")):
             content = (await file.read()).decode("utf-8")
-            
         else:
             return {"status": "Error", "message": "Unsupported file format. Please upload PDF, TXT, or MD."}
 
-        # 3. Save to MongoDB if content was found
         if content.strip():
             await save_file_context(file.filename, content)
             return {"status": "Success", "message": f"{file.filename} absorbed into memory."}
         else:
             return {"status": "Error", "message": "File is empty or text could not be extracted."}
-            
     except Exception as e:
         return {"status": "Error", "message": str(e)}
 
-
 # ==========================================
-# 🗂️ NEW: FILE MANAGEMENT ENDPOINTS
+# 🗂️ FILE MANAGEMENT ENDPOINTS
 # ==========================================
 @app.get("/files")
 async def list_files():
@@ -74,14 +75,22 @@ async def clear_files():
     await clear_all_knowledge()
     return {"status": "Success", "message": "Knowledge base purged."}
 
+# ==========================================
+# 💬 NEW: SESSION MANAGEMENT ENDPOINT
+# ==========================================
+@app.get("/sessions")
+async def list_sessions():
+    """Returns all past chat sessions for the sidebar."""
+    sessions = await get_all_sessions()
+    return {"sessions": sessions}
 
 # ==========================================
-# 💬 UPGRADED: CHAT ENDPOINT WITH RAG
+# 💬 UPGRADED: CHAT ENDPOINT WITH RAG & SESSIONS
 # ==========================================
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload):
-    # 1. Load long-term memory (chat history) from MongoDB
-    history = await get_history()
+    # 1. Load long-term memory FOR THIS SPECIFIC SESSION
+    history = await get_history(payload.session_id)
     
     # 2. Load uploaded file knowledge from MongoDB
     uploaded_knowledge = await get_all_file_context()
@@ -101,9 +110,9 @@ async def chat_endpoint(payload: ChatPayload):
                 yield f"data: {json.dumps({'token': token})}\n\n"
             await asyncio.sleep(0.01)
         
-        # 5. Save ONLY the user's original message to history (keeps the database clean)
-        await save_message("user", payload.message)
-        await save_message("assistant", full_text)
+        # 5. Save ONLY the user's original message to history (with the specific session ID)
+        await save_message(payload.session_id, "user", payload.message)
+        await save_message(payload.session_id, "assistant", full_text)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

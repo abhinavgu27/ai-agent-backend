@@ -2,13 +2,14 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useState, useRef, useEffect } from 'react';
-// 1. Added Paperclip to the lucide-react imports
-import { Send, Terminal, Bot, User, Trash2, Cpu, Loader2, Paperclip } from 'lucide-react';
+import { Send, Terminal, Bot, User, Trash2, Cpu, Loader2, Paperclip, X } from 'lucide-react';
+
+const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
 
 // ==========================================
-// 📂 NEW: FILE UPLOAD COMPONENT
+// 📂 FILE UPLOAD COMPONENT
 // ==========================================
-function FileUploadButton({ backendUrl }) {
+function FileUploadButton({ onUploadSuccess }) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const fileInputRef = useRef(null);
@@ -21,10 +22,10 @@ function FileUploadButton({ backendUrl }) {
       formData.append("file", file);
 
       setIsUploading(true);
-      setUploadStatus("..."); // Tiny indicator
+      setUploadStatus("..."); 
 
       try {
-          const response = await fetch(`${backendUrl}/upload`, {
+          const response = await fetch(`${BACKEND_URL}/upload`, {
               method: "POST",
               body: formData,
           });
@@ -33,6 +34,7 @@ function FileUploadButton({ backendUrl }) {
 
           if (data.status === "Success") {
               setUploadStatus("✅");
+              onUploadSuccess(); // Tell the main app to refresh the file list
               setTimeout(() => setUploadStatus(""), 3000); 
           } else {
               setUploadStatus("❌");
@@ -79,7 +81,6 @@ function FileUploadButton({ backendUrl }) {
               {isUploading ? <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> : <Paperclip size={20} />}
           </button>
           
-          {/* Floating Status Indicator */}
           {uploadStatus && (
               <span style={{ position: 'absolute', top: '-25px', left: '10px', fontSize: '0.8rem', animation: 'fadeIn 0.3s' }}>
                   {uploadStatus}
@@ -97,15 +98,39 @@ function App() {
   const [chatLog, setChatLog] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [activeFiles, setActiveFiles] = useState([]); // NEW: Tracks uploaded files
+  
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Auto-scroll to bottom
+  // Load files when the app starts
+  useEffect(() => {
+    fetchFiles();
+  }, []);
+
+  const fetchFiles = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/files`);
+      const data = await response.json();
+      setActiveFiles(data.files || []);
+    } catch (err) {
+      console.error("Could not fetch files:", err);
+    }
+  };
+
+  const handleClearFiles = async () => {
+    try {
+      await fetch(`${BACKEND_URL}/files`, { method: 'DELETE' });
+      setActiveFiles([]);
+    } catch (err) {
+      console.error("Could not clear files:", err);
+    }
+  };
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatLog]);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -134,7 +159,7 @@ function App() {
     setIsTyping(true);
 
     try {
-      const response = await fetch('https://ai-agent-backend-cmda.onrender.com/chat', {
+      const response = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: currentInput, history: chatLog })
@@ -282,10 +307,30 @@ function App() {
         {/* Input Bar */}
         <footer style={{ padding: '20px 20px 40px', background: 'linear-gradient(to top, #0D0D0D 80%, transparent)' }}>
           <div style={{ maxWidth: '850px', margin: '0 auto', position: 'relative' }}>
+            
+            {/* 🗂️ NEW: ACTIVE FILES DISPLAY */}
+            {activeFiles.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px', padding: '0 4px', animation: 'fadeIn 0.3s' }}>
+                    {activeFiles.map((filename, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', backgroundColor: '#1A1A1A', border: '1px solid #333', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', color: '#aaa' }}>
+                            <Paperclip size={12} style={{ marginRight: '6px', color: '#10a37f' }} />
+                            {filename}
+                        </div>
+                    ))}
+                    <button 
+                        onClick={handleClearFiles}
+                        title="Clear all attached files"
+                        style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(235, 87, 87, 0.1)', border: '1px solid rgba(235, 87, 87, 0.3)', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', color: '#eb5757', cursor: 'pointer', transition: 'all 0.2s' }}
+                    >
+                        <X size={12} style={{ marginRight: '4px' }} /> Clear Memory
+                    </button>
+                </div>
+            )}
+
             <form style={{ display: 'flex', alignItems: 'flex-end', backgroundColor: '#1A1A1A', borderRadius: '16px', padding: '10px 14px', border: '1px solid #333', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
               
-              {/* 2. THE UPLOAD BUTTON PLACED HERE */}
-              <FileUploadButton backendUrl="https://ai-agent-backend-cmda.onrender.com" />
+              {/* Pass the fetchFiles function so it refreshes after uploading */}
+              <FileUploadButton onUploadSuccess={fetchFiles} />
               
               <textarea 
                 ref={textareaRef}
