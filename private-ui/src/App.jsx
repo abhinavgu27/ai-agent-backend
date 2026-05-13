@@ -2,7 +2,7 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useState, useRef, useEffect } from 'react';
-import { Send, Terminal, Bot, User, Trash2, Cpu, Loader2, Paperclip, X } from 'lucide-react';
+import { Send, Terminal, Bot, User, Trash2, Cpu, Loader2, Paperclip, X, Plus, MessageSquare } from 'lucide-react';
 
 const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
 
@@ -34,7 +34,7 @@ function FileUploadButton({ onUploadSuccess }) {
 
           if (data.status === "Success") {
               setUploadStatus("✅");
-              onUploadSuccess(); // Tell the main app to refresh the file list
+              onUploadSuccess(); 
               setTimeout(() => setUploadStatus(""), 3000); 
           } else {
               setUploadStatus("❌");
@@ -97,15 +97,18 @@ function App() {
   const [input, setInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
-  const [isClearing, setIsClearing] = useState(false);
-  const [activeFiles, setActiveFiles] = useState([]); // NEW: Tracks uploaded files
+  const [activeFiles, setActiveFiles] = useState([]); 
   
+  // 💬 SESSION STATE
+  const [sessions, setSessions] = useState([]);
+  const [currentSessionId, setCurrentSessionId] = useState(Date.now().toString());
+
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Load files when the app starts
   useEffect(() => {
     fetchFiles();
+    fetchSessions();
   }, []);
 
   const fetchFiles = async () => {
@@ -113,18 +116,46 @@ function App() {
       const response = await fetch(`${BACKEND_URL}/files`);
       const data = await response.json();
       setActiveFiles(data.files || []);
-    } catch (err) {
-      console.error("Could not fetch files:", err);
-    }
+    } catch (err) { console.error("Could not fetch files:", err); }
+  };
+
+  const fetchSessions = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/sessions`);
+      const data = await response.json();
+      setSessions(data.sessions || []);
+    } catch (err) { console.error("Could not fetch sessions:", err); }
   };
 
   const handleClearFiles = async () => {
     try {
       await fetch(`${BACKEND_URL}/files`, { method: 'DELETE' });
       setActiveFiles([]);
-    } catch (err) {
-      console.error("Could not clear files:", err);
-    }
+    } catch (err) { console.error("Could not clear files:", err); }
+  };
+
+  // Handle Starting a New Chat
+  const startNewChat = () => {
+      setCurrentSessionId(Date.now().toString());
+      setChatLog([]);
+  };
+
+  // 💬 UPGRADED: Pull actual text history from the database
+  const loadSession = async (sessionId) => {
+      setCurrentSessionId(sessionId);
+      
+      try {
+          const response = await fetch(`${BACKEND_URL}/history/${sessionId}`);
+          const data = await response.json();
+          
+          if (data.history && data.history.length > 0) {
+              setChatLog(data.history); // Paint the old messages on the screen
+          } else {
+              setChatLog([{ role: 'assistant', content: '⚡ **Session Linked:** Memory restored.' }]);
+          }
+      } catch (err) {
+          console.error("Could not load visual history:", err);
+      }
   };
 
   useEffect(() => {
@@ -137,14 +168,6 @@ function App() {
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
     }
   }, [input]);
-
-  const handleClear = () => {
-    setIsClearing(true);
-    setTimeout(() => {
-      setChatLog([]);
-      setIsClearing(false);
-    }, 800);
-  };
 
   const handleSend = async (e) => {
     if (e) e.preventDefault();
@@ -162,7 +185,7 @@ function App() {
       const response = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: currentInput, history: chatLog })
+        body: JSON.stringify({ message: currentInput, session_id: currentSessionId })
       });
 
       const reader = response.body.getReader();
@@ -186,10 +209,12 @@ function App() {
                   newLog[newLog.length - 1].content = fullAiText;
                   return newLog;
                 });
-            } catch (e) { /* ignore chunk parsing errors */ }
+            } catch (e) { /* ignore parse error */ }
           }
         }
       }
+      // Refresh the sidebar to show the new message title if it's a new chat
+      fetchSessions();
     } catch (err) {
       setChatLog(prev => [...prev, { role: "assistant", content: "⚠️ **System Error:** Neural link severed." }]);
     } finally {
@@ -207,41 +232,70 @@ function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0D0D0D', color: '#E5E5E5', fontFamily: 'Inter, sans-serif' }}>
       
-      {/* --- SIDEBAR --- */}
+      {/* --- DYNAMIC SIDEBAR --- */}
       <aside style={{ width: '260px', backgroundColor: '#000000', borderRight: '1px solid #222', display: 'flex', flexDirection: 'column', padding: '20px 15px' }}>
+        
+        {/* NEW CHAT BUTTON */}
         <button 
-          onClick={handleClear}
-          disabled={isClearing || chatLog.length === 0}
+          onClick={startNewChat}
           style={{ 
-            border: isClearing ? '1px solid #10a37f' : '1px solid #333', 
+            border: '1px solid #333', 
             borderRadius: '8px', 
             padding: '12px', 
-            color: isClearing ? '#10a37f' : 'white', 
-            backgroundColor: isClearing ? 'rgba(16, 163, 127, 0.1)' : 'transparent', 
+            color: 'white', 
+            backgroundColor: 'transparent', 
             display: 'flex', 
             alignItems: 'center', 
             justifyContent: 'center',
             gap: '10px', 
-            cursor: (isClearing || chatLog.length === 0) ? 'default' : 'pointer', 
+            cursor: 'pointer', 
             marginBottom: '30px',
             transition: 'all 0.3s ease'
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#1a1a1a'; e.currentTarget.style.borderColor = '#10a37f'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = '#333'; }}
         >
-          {isClearing ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={16} />} 
-          {isClearing ? 'Purging Memory...' : 'Clear Conversation'}
+          <Plus size={16} /> New Chat
         </button>
 
-        <div style={{ flex: 1, fontSize: '0.8rem', color: '#666' }}>
-          <p style={{ marginBottom: '12px', fontWeight: 'bold', color: '#888', letterSpacing: '1px', fontSize: '0.7rem' }}>ACTIVE WORKSPACES</p>
-          <div style={{ padding: '10px', borderRadius: '6px', backgroundColor: '#1a1a1a', borderLeft: '3px solid #10a37f', marginBottom: '8px', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-             <Terminal size={14} color="#10a37f"/> GRIIN AI
-          </div>
-          <div style={{ padding: '10px', borderRadius: '6px', borderLeft: '3px solid transparent', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-             <Terminal size={14} /> PortHound
-          </div>
+        <div style={{ flex: 1, fontSize: '0.8rem', color: '#666', overflowY: 'auto' }}>
+          <p style={{ marginBottom: '12px', fontWeight: 'bold', color: '#888', letterSpacing: '1px', fontSize: '0.7rem' }}>CHAT HISTORY</p>
+          
+          {/* MAPPING DYNAMIC SESSIONS */}
+          {sessions.length === 0 ? (
+              <p style={{ textAlign: 'center', opacity: 0.5, marginTop: '20px' }}>No previous sessions.</p>
+          ) : (
+              sessions.map((session, idx) => (
+                  <div 
+                      key={idx}
+                      onClick={() => loadSession(session.session_id)}
+                      style={{ 
+                          padding: '10px', 
+                          borderRadius: '6px', 
+                          backgroundColor: currentSessionId === session.session_id ? '#1a1a1a' : 'transparent', 
+                          borderLeft: currentSessionId === session.session_id ? '3px solid #10a37f' : '3px solid transparent', 
+                          marginBottom: '8px', 
+                          color: currentSessionId === session.session_id ? '#fff' : '#aaa', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '8px',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                      }}
+                      onMouseEnter={(e) => { if(currentSessionId !== session.session_id) e.currentTarget.style.backgroundColor = '#111'; }}
+                      onMouseLeave={(e) => { if(currentSessionId !== session.session_id) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                  >
+                     <MessageSquare size={14} color={currentSessionId === session.session_id ? "#10a37f" : "#666"} style={{ flexShrink: 0 }} /> 
+                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.title}</span>
+                  </div>
+              ))
+          )}
         </div>
-        <div style={{ fontSize: '0.7rem', color: '#444', textAlign: 'center', opacity: 0.7 }}>
-          OS BUILD 2.1.0 // SECURE
+        
+        <div style={{ fontSize: '0.7rem', color: '#444', textAlign: 'center', opacity: 0.7, marginTop: '10px' }}>
+          OS BUILD 2.2.0 // PRO
         </div>
       </aside>
 
@@ -252,7 +306,7 @@ function App() {
         <header style={{ padding: '15px 30px', backdropFilter: 'blur(12px)', backgroundColor: 'rgba(13, 13, 13, 0.75)', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '8px', height: '8px', backgroundColor: '#10a37f', borderRadius: '50%', boxShadow: '0 0 12px #10a37f' }}></div>
-            <span style={{ fontWeight: '600', letterSpacing: '1.5px', fontSize: '0.9rem' }}>AGENT OS // ALPHA</span>
+            <span style={{ fontWeight: '600', letterSpacing: '1.5px', fontSize: '0.9rem' }}>AGENT OS // PRO</span>
           </div>
           <div style={{ fontSize: '0.8rem', color: '#666', display: 'flex', alignItems: 'center', gap: '6px' }}>
             {isTyping && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
@@ -263,11 +317,11 @@ function App() {
         {/* Chat Area */}
         <main style={{ flex: 1, overflowY: 'auto', padding: '40px 0', scrollBehavior: 'smooth' }}>
           <div style={{ maxWidth: '850px', margin: '0 auto', padding: '0 20px' }}>
-            {chatLog.length === 0 && !isClearing && (
+            {chatLog.length === 0 && (
                 <div style={{ textAlign: 'center', marginTop: '15vh', color: '#444', animation: 'fadeIn 1s ease-in' }}>
                     <Cpu size={56} style={{ marginBottom: '20px', opacity: 0.15 }} />
-                    <h2 style={{ color: '#aaa', fontWeight: '400', letterSpacing: '1px' }}>Neural Engine Online</h2>
-                    <p style={{ fontSize: '0.9rem' }}>Drop in your Spring Boot code, system architectures, or market queries.</p>
+                    <h2 style={{ color: '#aaa', fontWeight: '400', letterSpacing: '1px' }}>New Session Initiated</h2>
+                    <p style={{ fontSize: '0.9rem' }}>Context isolated. Ready for new input.</p>
                 </div>
             )}
             
@@ -308,7 +362,7 @@ function App() {
         <footer style={{ padding: '20px 20px 40px', background: 'linear-gradient(to top, #0D0D0D 80%, transparent)' }}>
           <div style={{ maxWidth: '850px', margin: '0 auto', position: 'relative' }}>
             
-            {/* 🗂️ NEW: ACTIVE FILES DISPLAY */}
+            {/* ACTIVE FILES DISPLAY */}
             {activeFiles.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px', padding: '0 4px', animation: 'fadeIn 0.3s' }}>
                     {activeFiles.map((filename, idx) => (
@@ -329,7 +383,6 @@ function App() {
 
             <form style={{ display: 'flex', alignItems: 'flex-end', backgroundColor: '#1A1A1A', borderRadius: '16px', padding: '10px 14px', border: '1px solid #333', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
               
-              {/* Pass the fetchFiles function so it refreshes after uploading */}
               <FileUploadButton onUploadSuccess={fetchFiles} />
               
               <textarea 

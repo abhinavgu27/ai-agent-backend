@@ -29,7 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# UPDATED: Added session_id
 class ChatPayload(BaseModel):
     message: str
     session_id: str = "default"
@@ -76,7 +75,7 @@ async def clear_files():
     return {"status": "Success", "message": "Knowledge base purged."}
 
 # ==========================================
-# 💬 NEW: SESSION MANAGEMENT ENDPOINT
+# 💬 SESSION MANAGEMENT ENDPOINTS
 # ==========================================
 @app.get("/sessions")
 async def list_sessions():
@@ -84,8 +83,15 @@ async def list_sessions():
     sessions = await get_all_sessions()
     return {"sessions": sessions}
 
+@app.get("/history/{session_id}")
+async def get_session_history(session_id: str):
+    """Fetches the full visual chat log for the frontend."""
+    # We fetch up to 50 past messages for the screen
+    history = await get_history(session_id, limit=50)
+    return {"history": history}
+
 # ==========================================
-# 💬 UPGRADED: CHAT ENDPOINT WITH RAG & SESSIONS
+# 💬 CHAT ENDPOINT WITH RAG & SESSIONS
 # ==========================================
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload):
