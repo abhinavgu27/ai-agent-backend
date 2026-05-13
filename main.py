@@ -1,16 +1,15 @@
-from fastapi import FastAPI, UploadFile, File  # Removed StreamingResponse from here
-from fastapi.responses import StreamingResponse # Added this separate line
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from brain import ask
-from database import save_message, get_history, save_file_context, get_all_file_context
+# Notice the two new imports at the end of this line:
+from database import save_message, get_history, save_file_context, get_all_file_context, get_uploaded_filenames, clear_all_knowledge
 import json
 import asyncio
 import os
 import io
 import PyPDF2
-
-# ... the rest of your code ...
 
 app = FastAPI()
 
@@ -27,7 +26,7 @@ class ChatPayload(BaseModel):
     message: str
 
 # ==========================================
-# 📂 NEW: FILE UPLOAD ENDPOINT
+# 📂 FILE UPLOAD ENDPOINT
 # ==========================================
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -58,6 +57,22 @@ async def upload_file(file: UploadFile = File(...)):
             
     except Exception as e:
         return {"status": "Error", "message": str(e)}
+
+
+# ==========================================
+# 🗂️ NEW: FILE MANAGEMENT ENDPOINTS
+# ==========================================
+@app.get("/files")
+async def list_files():
+    """Returns the list of files the AI currently has in memory."""
+    files = await get_uploaded_filenames()
+    return {"files": files}
+
+@app.delete("/files")
+async def clear_files():
+    """Clears all uploaded files from the AI's memory."""
+    await clear_all_knowledge()
+    return {"status": "Success", "message": "Knowledge base purged."}
 
 
 # ==========================================
