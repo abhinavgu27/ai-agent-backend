@@ -9,7 +9,7 @@ const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
 // ==========================================
 // 📂 FILE UPLOAD COMPONENT
 // ==========================================
-function FileUploadButton({ onUploadSuccess }) {
+function FileUploadButton({ onUploadSuccess, currentSessionId }) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const fileInputRef = useRef(null);
@@ -20,6 +20,7 @@ function FileUploadButton({ onUploadSuccess }) {
 
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("session_id", currentSessionId); // Attach it to the specific session!
 
       setIsUploading(true);
       setUploadStatus("..."); 
@@ -106,14 +107,18 @@ function App() {
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
 
+  // Auto-fetch files and history when session changes
   useEffect(() => {
-    fetchFiles();
     fetchSessions();
   }, []);
 
+  useEffect(() => {
+    fetchFiles();
+  }, [currentSessionId]);
+
   const fetchFiles = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/files`);
+      const response = await fetch(`${BACKEND_URL}/files/${currentSessionId}`);
       const data = await response.json();
       setActiveFiles(data.files || []);
     } catch (err) { console.error("Could not fetch files:", err); }
@@ -129,7 +134,7 @@ function App() {
 
   const handleClearFiles = async () => {
     try {
-      await fetch(`${BACKEND_URL}/files`, { method: 'DELETE' });
+      await fetch(`${BACKEND_URL}/files/${currentSessionId}`, { method: 'DELETE' });
       setActiveFiles([]);
     } catch (err) { console.error("Could not clear files:", err); }
   };
@@ -140,8 +145,8 @@ function App() {
       setChatLog([]);
   };
 
-  // 💬 UPGRADED: Pull actual text history from the database
   const loadSession = async (sessionId) => {
+      setChatLog([]); // Clear the screen first
       setCurrentSessionId(sessionId);
       
       try {
@@ -149,7 +154,7 @@ function App() {
           const data = await response.json();
           
           if (data.history && data.history.length > 0) {
-              setChatLog(data.history); // Paint the old messages on the screen
+              setChatLog(data.history); 
           } else {
               setChatLog([{ role: 'assistant', content: '⚡ **Session Linked:** Memory restored.' }]);
           }
@@ -213,8 +218,7 @@ function App() {
           }
         }
       }
-      // Refresh the sidebar to show the new message title if it's a new chat
-      fetchSessions();
+      fetchSessions(); // Refresh sidebar titles
     } catch (err) {
       setChatLog(prev => [...prev, { role: "assistant", content: "⚠️ **System Error:** Neural link severed." }]);
     } finally {
@@ -235,7 +239,6 @@ function App() {
       {/* --- DYNAMIC SIDEBAR --- */}
       <aside style={{ width: '260px', backgroundColor: '#000000', borderRight: '1px solid #222', display: 'flex', flexDirection: 'column', padding: '20px 15px' }}>
         
-        {/* NEW CHAT BUTTON */}
         <button 
           onClick={startNewChat}
           style={{ 
@@ -261,7 +264,6 @@ function App() {
         <div style={{ flex: 1, fontSize: '0.8rem', color: '#666', overflowY: 'auto' }}>
           <p style={{ marginBottom: '12px', fontWeight: 'bold', color: '#888', letterSpacing: '1px', fontSize: '0.7rem' }}>CHAT HISTORY</p>
           
-          {/* MAPPING DYNAMIC SESSIONS */}
           {sessions.length === 0 ? (
               <p style={{ textAlign: 'center', opacity: 0.5, marginTop: '20px' }}>No previous sessions.</p>
           ) : (
@@ -302,7 +304,6 @@ function App() {
       {/* --- MAIN CHAT --- */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         
-        {/* Header */}
         <header style={{ padding: '15px 30px', backdropFilter: 'blur(12px)', backgroundColor: 'rgba(13, 13, 13, 0.75)', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '8px', height: '8px', backgroundColor: '#10a37f', borderRadius: '50%', boxShadow: '0 0 12px #10a37f' }}></div>
@@ -314,7 +315,6 @@ function App() {
           </div>
         </header>
 
-        {/* Chat Area */}
         <main style={{ flex: 1, overflowY: 'auto', padding: '40px 0', scrollBehavior: 'smooth' }}>
           <div style={{ maxWidth: '850px', margin: '0 auto', padding: '0 20px' }}>
             {chatLog.length === 0 && (
@@ -358,11 +358,9 @@ function App() {
           </div>
         </main>
 
-        {/* Input Bar */}
         <footer style={{ padding: '20px 20px 40px', background: 'linear-gradient(to top, #0D0D0D 80%, transparent)' }}>
           <div style={{ maxWidth: '850px', margin: '0 auto', position: 'relative' }}>
             
-            {/* ACTIVE FILES DISPLAY */}
             {activeFiles.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px', padding: '0 4px', animation: 'fadeIn 0.3s' }}>
                     {activeFiles.map((filename, idx) => (
@@ -373,17 +371,18 @@ function App() {
                     ))}
                     <button 
                         onClick={handleClearFiles}
-                        title="Clear all attached files"
+                        title="Clear all attached files for this session"
                         style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(235, 87, 87, 0.1)', border: '1px solid rgba(235, 87, 87, 0.3)', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', color: '#eb5757', cursor: 'pointer', transition: 'all 0.2s' }}
                     >
-                        <X size={12} style={{ marginRight: '4px' }} /> Clear Memory
+                        <X size={12} style={{ marginRight: '4px' }} /> Clear Files
                     </button>
                 </div>
             )}
 
             <form style={{ display: 'flex', alignItems: 'flex-end', backgroundColor: '#1A1A1A', borderRadius: '16px', padding: '10px 14px', border: '1px solid #333', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
               
-              <FileUploadButton onUploadSuccess={fetchFiles} />
+              {/* Pass the currentSessionId down so the backend knows where to put the file */}
+              <FileUploadButton onUploadSuccess={fetchFiles} currentSessionId={currentSessionId} />
               
               <textarea 
                 ref={textareaRef}
@@ -404,7 +403,6 @@ function App() {
           </div>
         </footer>
       </div>
-
       <style>{`
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
