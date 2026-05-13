@@ -3,3 +3,5 @@ uvicorn
 groq
 python-dotenv
 motor
+python-multipart
+PyPDF2

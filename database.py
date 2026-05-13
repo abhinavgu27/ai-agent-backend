@@ -30,3 +30,18 @@ async def get_history(limit=10):
     except Exception as e:
         print(f"❌ DB Fetch Error: {e}")
         return []
+    # Add this to your existing database.py
+knowledge_collection = db.knowledge
+
+async def save_file_context(filename, content):
+    """Saves uploaded file text to the database."""
+    await knowledge_collection.insert_one({
+        "filename": filename,
+        "content": content
+    })
+
+async def get_all_file_context():
+    """Retrieves all uploaded knowledge for the AI."""
+    cursor = knowledge_collection.find()
+    docs = await cursor.to_list(length=100)
+    return "\n".join([d["content"] for d in docs])
