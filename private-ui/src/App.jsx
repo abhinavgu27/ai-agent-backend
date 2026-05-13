@@ -21,8 +21,8 @@ function App() {
     setIsTyping(true);
 
     try {
-      // Using 127.0.0.1 to avoid DNS resolution issues on Windows
-      const response = await fetch('https://YOUR-RENDER-URL.onrender.com/chat', {
+      // Connects directly to your live Render backend
+      const response = await fetch('https://ai-agent-backend-cmda.onrender.com/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: input, history: chatLog })
@@ -62,7 +62,7 @@ function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#212121', color: '#ececf1' }}>
       <header style={{ padding: '15px', borderBottom: '1px solid #444', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#202123' }}>
-        ADVANCED LOCAL ENGINE (RTX 3050)
+        CLOUD AI AGENT (Llama 3 70B)
       </header>
 
       <main style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
