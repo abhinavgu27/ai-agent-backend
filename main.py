@@ -2,14 +2,16 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from brain import engine
 import json
 import os
 import asyncio
 
+# Import the logic from your brain.py
+from brain import ask
+
 app = FastAPI()
 
-# Cloud-safe CORS settings
+# Cloud-safe CORS settings for your Vercel frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,26 +27,25 @@ class ChatPayload(BaseModel):
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload):
     async def event_stream():
-        # Using an executor to prevent the generator from blocking the event loop
         loop = asyncio.get_event_loop()
         
-        # Wrapped generator call for stability
+        # Wrapping the generator in an executor to keep the API responsive
         def get_tokens():
-            return engine.ask(payload.message, payload.history)
+            return ask(payload.message, payload.history)
 
         tokens = await loop.run_in_executor(None, get_tokens)
         
         for token in tokens:
             if token:
-                # Proper SSE format for React frontend
+                # Standard Server-Sent Events (SSE) format
                 yield f"data: {json.dumps({'token': token})}\n\n"
-            # Prevent connection timeouts on cloud providers
+            # Tiny sleep to prevent cloud connection timeouts
             await asyncio.sleep(0.01)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 if __name__ == "__main__":
     import uvicorn
-    # Render explicitly looks for port 10000 in your logs
+    # Render looks for the PORT environment variable (default 10000)
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)

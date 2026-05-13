@@ -1,56 +1,44 @@
 import os
 from dotenv import load_dotenv
 from groq import Groq
-from memory import search_knowledge_base  # <-- Import the new memory engine!
+from memory import search_knowledge_base
 
-# Load environment variables (API Key)
 load_dotenv()
 
-# Initialize the Groq client
+# Initialize the Groq client with your API key
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 def ask(user_message, history=[]):
     """
-    Sends the conversation to Groq and yields the streaming response.
-    Now equipped with Long-Term Memory (RAG).
+    Coordinates lightweight RAG by reading local docs and 
+    querying the Llama-3 model.
     """
-    
-    # 1. Search the Vector Database for relevant files
-    print(f"🔍 Searching memory for: {user_message}")
+    # 1. Retrieve the content of your files from the /docs folder
     context = search_knowledge_base(user_message)
     
-    # 2. Build the System Prompt with the retrieved knowledge
-    system_prompt = "You are a highly advanced, professional cloud AI agent."
+    # 2. Build the System Prompt with the context injected
+    system_prompt = "You are AGENT OS, a high-performance, professional AI assistant."
     
     if context:
-        system_prompt += f"\n\nHere is some highly relevant context from the user's secure files. Use this to answer their question accurately:\n\n{context}"
-        print("🧠 Memory retrieved and injected into prompt!")
+        system_prompt += f"\n\n[CONTEXT FROM YOUR SECURE FILES]:\n{context}\n\nUse this information to answer precisely."
 
-    # 3. Format the conversation history for Groq
+    # 3. Format the chat history
     messages = [{"role": "system", "content": system_prompt}]
-    
     for msg in history:
-        # Convert frontend roles ('user', 'assistant') to Groq roles if necessary
-        role = msg.get("role", "user")
-        messages.append({"role": role, "content": msg.get("content", "")})
+        messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
     
-    # Add the newest user message
     messages.append({"role": "user", "content": user_message})
 
-    # 4. Stream the response from the Llama 3 70B model
+    # 4. Stream response using the Llama-3 70B model
     try:
         completion = client.chat.completions.create(
-            model="llama3-70b-8192", # Or "llama3-8b-8192" for speed
+            model="llama3-70b-8192",
             messages=messages,
             stream=True,
-            temperature=0.7,
-            max_tokens=1024
+            temperature=0.6
         )
-
         for chunk in completion:
-            if chunk.choices[0].delta.content is not None:
+            if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
-                
     except Exception as e:
-        print(f"Groq API Error: {e}")
-        yield "⚠️ Neural Engine Error: Failed to connect to Groq."
+        yield f"⚠️ Neural Link Error: {str(e)}"
