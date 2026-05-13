@@ -1,35 +1,37 @@
 import os
 from dotenv import load_dotenv
 from groq import Groq
-from memory import search_knowledge_base
+# REMOVED: search_knowledge_base import since we are using Database RAG now
 
 load_dotenv()
 
-# Initialize the Groq client with your API key
+# Initialize the Groq client
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 def ask(user_message, history=[]):
     """
-    Coordinates lightweight RAG by reading local docs and 
-    querying the Llama-3 model.
+    Queries the Llama-3 model. The context is now passed 
+    directly through the user_message from main.py.
     """
-    # 1. Retrieve the content of your files from the /docs folder
-    context = search_knowledge_base(user_message)
     
-    # 2. Build the System Prompt with the context injected
-    system_prompt = "You are AGENT OS, a high-performance, professional AI assistant."
-    
-    if context:
-        system_prompt += f"\n\n[CONTEXT FROM YOUR SECURE FILES]:\n{context}\n\nUse this information to answer precisely."
+    # 1. Clean System Prompt (No more hardcoded GRIIN)
+    system_prompt = (
+        "You are AGENT OS, a high-performance, professional AI assistant. "
+        "Provide clear, accurate, and helpful responses. If context from uploaded "
+        "files is provided, use it to answer precisely."
+    )
 
-    # 3. Format the chat history
+    # 2. Build the messages array
     messages = [{"role": "system", "content": system_prompt}]
+    
+    # 3. Add chat history
     for msg in history:
         messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
     
+    # 4. Add the current user message (which already contains the DB context from main.py)
     messages.append({"role": "user", "content": user_message})
 
-    # 4. Stream response using the Llama-3 70B model
+    # 5. Stream response using the Llama-3 70B model
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
