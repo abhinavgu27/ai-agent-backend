@@ -1,17 +1,13 @@
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import json
-import os
-import asyncio
-
-# Import the logic from your brain.py
+from fastapi import FastAPI, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware # <--- Added
+from pydantic import BaseModel # <--- Added
 from brain import ask
+from database import save_message, get_history
+import json, asyncio, os
 
 app = FastAPI()
 
-# Cloud-safe CORS settings for your Vercel frontend
+# IMPORTANT: You must add this or your frontend won't be able to connect
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,30 +18,28 @@ app.add_middleware(
 
 class ChatPayload(BaseModel):
     message: str
-    history: list = []
 
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload):
-    async def event_stream():
-        loop = asyncio.get_event_loop()
-        
-        # Wrapping the generator in an executor to keep the API responsive
-        def get_tokens():
-            return ask(payload.message, payload.history)
+    # 1. Load long-term memory from MongoDB
+    history = await get_history()
 
-        tokens = await loop.run_in_executor(None, get_tokens)
-        
-        for token in tokens:
+    async def event_stream():
+        full_text = ""
+        # 2. We pass the user's message and the database history to the brain
+        for token in ask(payload.message, history):
             if token:
-                # Standard Server-Sent Events (SSE) format
+                full_text += token
                 yield f"data: {json.dumps({'token': token})}\n\n"
-            # Tiny sleep to prevent cloud connection timeouts
             await asyncio.sleep(0.01)
+        
+        # 3. Save this conversation pair to MongoDB so it's remembered next time
+        await save_message("user", payload.message)
+        await save_message("assistant", full_text)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 if __name__ == "__main__":
     import uvicorn
-    # Render looks for the PORT environment variable (default 10000)
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
