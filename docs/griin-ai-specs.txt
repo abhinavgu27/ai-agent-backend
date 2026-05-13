@@ -1,0 +1,5 @@
+Project: GRIIN AI
+Author: Abhinav Singhal
+Description: An AI-powered road hazard detection mobile application.
+Tech Stack: Android, Spring Boot, PostgreSQL.
+Features: On-device machine learning model for detecting potholes and road obstructions in real-time.

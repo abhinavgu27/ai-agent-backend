@@ -1,93 +1,56 @@
 import os
+from dotenv import load_dotenv
 from groq import Groq
-from ddgs import DDGS
-import yfinance as yf
+from memory import search_knowledge_base  # <-- Import the new memory engine!
 
-# NOTE: Set your API key in your terminal before running!
-# Windows: $env:GROQ_API_KEY="gsk_your_key_here"
+# Load environment variables (API Key)
+load_dotenv()
 
-class AIEngine:
-    def __init__(self):
-        api_key = os.environ.get("GROQ_API_KEY")
-        self.client = Groq(api_key=api_key)
-        
-        # Using Llama-3 8B - Blazing fast and incredibly smart
-        self.model_id = "llama-3.3-70b-versatile" 
-        print("⚡ Serverless Agent Engine is Ready! Connected to Groq.")
+# Initialize the Groq client
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-    # --- TOOL 1: THE WEB BROWSER ---
-    def tool_web_search(self, query):
-        print(f"\n[AGENT ACTION] Searching web for: {query}")
-        try:
-            results = DDGS().text(query, max_results=3)
-            if not results: return "No results found."
-            context = "Real-time Web Search Results:\n"
-            for i, r in enumerate(results):
-                context += f"{i+1}. {r['title']}: {r['body']}\n"
-            return context
-        except Exception as e:
-            return f"Search failed: {e}"
+def ask(user_message, history=[]):
+    """
+    Sends the conversation to Groq and yields the streaming response.
+    Now equipped with Long-Term Memory (RAG).
+    """
+    
+    # 1. Search the Vector Database for relevant files
+    print(f"🔍 Searching memory for: {user_message}")
+    context = search_knowledge_base(user_message)
+    
+    # 2. Build the System Prompt with the retrieved knowledge
+    system_prompt = "You are a highly advanced, professional cloud AI agent."
+    
+    if context:
+        system_prompt += f"\n\nHere is some highly relevant context from the user's secure files. Use this to answer their question accurately:\n\n{context}"
+        print("🧠 Memory retrieved and injected into prompt!")
 
-    # --- TOOL 2: THE FINANCIAL TERMINAL ---
-    def tool_get_price(self, asset):
-        print(f"\n[AGENT ACTION] Fetching market data for: {asset}")
-        asset_clean = asset.lower().strip()
-        tickers = {
-            "bitcoin": "BTC-USD", "btc": "BTC-USD",
-            "ethereum": "ETH-USD", "eth": "ETH-USD",
-            "apple": "AAPL", "google": "GOOGL", "microsoft": "MSFT",
-            "tesla": "TSLA", "nvidia": "NVDA"
-        }
-        symbol = tickers.get(asset_clean, asset_clean.upper())
-        try:
-            ticker_data = yf.Ticker(symbol)
-            price = ticker_data.history(period="1d")['Close'].iloc[-1]
-            return f"LIVE MARKET DATA: The current exact price of {asset.upper()} ({symbol}) is ${price:,.2f} USD."
-        except Exception as e:
-            return "Finance data unavailable. Try web search instead."
+    # 3. Format the conversation history for Groq
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    for msg in history:
+        # Convert frontend roles ('user', 'assistant') to Groq roles if necessary
+        role = msg.get("role", "user")
+        messages.append({"role": role, "content": msg.get("content", "")})
+    
+    # Add the newest user message
+    messages.append({"role": "user", "content": user_message})
 
-    # --- THE SERVERLESS BRAIN ---
-    def ask(self, prompt, history=[]):
-        # 1. Routing Decision via Groq
-        router_prompt = f"Analyze: '{prompt}'. If asking for a stock or crypto price, output 'PRICE: [asset name]'. If asking for general news or facts, output 'SEARCH: [query]'. Otherwise output 'NO'. Reply ONLY with the command."
-        
-        r_response = self.client.chat.completions.create(
-            model=self.model_id,
-            messages=[{"role": "user", "content": router_prompt}],
-            temperature=0.1,
-            max_tokens=20
-        )
-        decision = r_response.choices[0].message.content
-
-        tool_context = ""
-        
-        # 2. Tool Execution
-        if "PRICE:" in decision:
-            asset = decision.replace("PRICE:", "").strip().strip("[]'\"")
-            yield f"> 📈 *Agent securely connected to financial markets for: **{asset}***\n\n"
-            tool_context = f"\n\n[REAL-TIME CONTEXT]:\n{self.tool_get_price(asset)}\n"
-            
-        elif "SEARCH:" in decision:
-            query = decision.replace("SEARCH:", "").strip().strip("[]'\"")
-            yield f"> 🌐 *Agent autonomously searched the web for: **{query}***\n\n"
-            tool_context = f"\n\n[REAL-TIME CONTEXT]:\n{self.tool_web_search(query)}\n"
-
-        # 3. Final Generation via Groq Streaming
-        system_instruction = "You are a professional AI. Use the provided [REAL-TIME CONTEXT] to answer clearly and accurately. Never say you cannot access real-time data."
-        
-        messages = [{"role": "system", "content": system_instruction}]
-        for msg in history: messages.append(msg)
-        messages.append({"role": "user", "content": prompt + tool_context})
-        
-        stream = self.client.chat.completions.create(
-            model=self.model_id,
+    # 4. Stream the response from the Llama 3 70B model
+    try:
+        completion = client.chat.completions.create(
+            model="llama3-70b-8192", # Or "llama3-8b-8192" for speed
             messages=messages,
             stream=True,
-            temperature=0.7
+            temperature=0.7,
+            max_tokens=1024
         )
 
-        for chunk in stream:
+        for chunk in completion:
             if chunk.choices[0].delta.content is not None:
                 yield chunk.choices[0].delta.content
-
-engine = AIEngine()
+                
+    except Exception as e:
+        print(f"Groq API Error: {e}")
+        yield "⚠️ Neural Engine Error: Failed to connect to Groq."
