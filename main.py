@@ -1,4 +1,5 @@
-from fastapi import FastAPI, StreamingResponse, UploadFile, File
+from fastapi import FastAPI, UploadFile, File  # Removed StreamingResponse from here
+from fastapi.responses import StreamingResponse # Added this separate line
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from brain import ask
@@ -8,6 +9,8 @@ import asyncio
 import os
 import io
 import PyPDF2
+
+# ... the rest of your code ...
 
 app = FastAPI()
 

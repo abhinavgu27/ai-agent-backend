@@ -2,8 +2,96 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useState, useRef, useEffect } from 'react';
-import { Send, Terminal, Bot, User, Trash2, Cpu, Loader2 } from 'lucide-react';
+// 1. Added Paperclip to the lucide-react imports
+import { Send, Terminal, Bot, User, Trash2, Cpu, Loader2, Paperclip } from 'lucide-react';
 
+// ==========================================
+// 📂 NEW: FILE UPLOAD COMPONENT
+// ==========================================
+function FileUploadButton({ backendUrl }) {
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const fileInputRef = useRef(null);
+
+  const handleFileChange = async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      setIsUploading(true);
+      setUploadStatus("..."); // Tiny indicator
+
+      try {
+          const response = await fetch(`${backendUrl}/upload`, {
+              method: "POST",
+              body: formData,
+          });
+
+          const data = await response.json();
+
+          if (data.status === "Success") {
+              setUploadStatus("✅");
+              setTimeout(() => setUploadStatus(""), 3000); 
+          } else {
+              setUploadStatus("❌");
+              setTimeout(() => setUploadStatus(""), 3000); 
+          }
+      } catch (error) {
+          setUploadStatus("❌");
+          setTimeout(() => setUploadStatus(""), 3000); 
+      } finally {
+          setIsUploading(false);
+          event.target.value = null; 
+      }
+  };
+
+  return (
+      <div style={{ display: 'flex', alignItems: 'center', position: 'relative', marginBottom: '4px', marginLeft: '4px' }}>
+          <input 
+              type="file" 
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept=".txt,.md,.pdf" 
+              style={{ display: 'none' }} 
+          />
+          <button 
+              type="button"
+              onClick={() => fileInputRef.current.click()}
+              disabled={isUploading}
+              title="Upload Document (PDF, TXT, MD)"
+              style={{ 
+                  backgroundColor: 'transparent', 
+                  color: isUploading ? '#10a37f' : '#888', 
+                  border: 'none', 
+                  width: '40px', 
+                  height: '40px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  cursor: isUploading ? 'default' : 'pointer', 
+                  transition: 'all 0.2s' 
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
+              onMouseLeave={(e) => e.currentTarget.style.color = isUploading ? '#10a37f' : '#888'}
+          >
+              {isUploading ? <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> : <Paperclip size={20} />}
+          </button>
+          
+          {/* Floating Status Indicator */}
+          {uploadStatus && (
+              <span style={{ position: 'absolute', top: '-25px', left: '10px', fontSize: '0.8rem', animation: 'fadeIn 0.3s' }}>
+                  {uploadStatus}
+              </span>
+          )}
+      </div>
+  );
+}
+
+// ==========================================
+// 🚀 MAIN APP COMPONENT
+// ==========================================
 function App() {
   const [input, setInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
@@ -27,7 +115,6 @@ function App() {
 
   const handleClear = () => {
     setIsClearing(true);
-    // Fake a cool "system purge" delay
     setTimeout(() => {
       setChatLog([]);
       setIsClearing(false);
@@ -164,9 +251,8 @@ function App() {
                 <div style={{ width: '32px', height: '32px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: msg.role === 'user' ? '#10a37f' : '#6E2CF2', color: 'white', flexShrink: 0 }}>
                   {msg.role === 'user' ? <User size={18} /> : <Bot size={18} />}
                 </div>
-                <div style={{ flex: 1, lineHeight: '1.7', fontSize: '1rem', color: '#d1d1d1', overflowhidden: 'hidden' }}>
+                <div style={{ flex: 1, lineHeight: '1.7', fontSize: '1rem', color: '#d1d1d1', overflow: 'hidden' }}>
                   
-                  {/* The Magic Markdown Renderer */}
                   <ReactMarkdown
                     components={{
                       code({node, inline, className, children, ...props}) {
@@ -197,6 +283,10 @@ function App() {
         <footer style={{ padding: '20px 20px 40px', background: 'linear-gradient(to top, #0D0D0D 80%, transparent)' }}>
           <div style={{ maxWidth: '850px', margin: '0 auto', position: 'relative' }}>
             <form style={{ display: 'flex', alignItems: 'flex-end', backgroundColor: '#1A1A1A', borderRadius: '16px', padding: '10px 14px', border: '1px solid #333', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+              
+              {/* 2. THE UPLOAD BUTTON PLACED HERE */}
+              <FileUploadButton backendUrl="https://ai-agent-backend-cmda.onrender.com" />
+              
               <textarea 
                 ref={textareaRef}
                 value={input} 
@@ -206,7 +296,7 @@ function App() {
                 rows={1}
                 style={{ flex: 1, padding: '10px', backgroundColor: 'transparent', border: 'none', color: 'white', outline: 'none', fontSize: '1rem', resize: 'none', fontFamily: 'inherit', maxHeight: '200px', lineHeight: '1.5' }}
               />
-              <button onClick={handleSend} disabled={isTyping || !input.trim()} style={{ backgroundColor: (isTyping || !input.trim()) ? '#333' : '#10a37f', color: 'white', border: 'none', borderRadius: '10px', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: (isTyping || !input.trim()) ? 'default' : 'pointer', transition: 'all 0.2s', marginBottom: '4px', flexShrink: 0 }}>
+              <button type="button" onClick={handleSend} disabled={isTyping || !input.trim()} style={{ backgroundColor: (isTyping || !input.trim()) ? '#333' : '#10a37f', color: 'white', border: 'none', borderRadius: '10px', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: (isTyping || !input.trim()) ? 'default' : 'pointer', transition: 'all 0.2s', marginBottom: '4px', flexShrink: 0 }}>
                 <Send size={18} style={{ transform: 'translateX(-1px)' }}/>
               </button>
             </form>
@@ -217,7 +307,6 @@ function App() {
         </footer>
       </div>
 
-      {/* Global CSS for the loading spinner animation */}
       <style>{`
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
