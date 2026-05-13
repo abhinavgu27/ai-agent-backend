@@ -31,5 +31,7 @@ async def chat_endpoint(payload: ChatPayload):
 
 if __name__ == "__main__":
     import uvicorn
-    # 0.0.0.0 makes the server accessible across your local network
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    # Get the port from Render's environment, or default to 8000
+    port = int(os.environ.get("PORT", 8000)) 
+    uvicorn.run(app, host="0.0.0.0", port=port)
