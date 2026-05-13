@@ -1,26 +1,13 @@
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from brain import engine
-from memory import build_knowledge_base
 import json
 import os
 import asyncio
-import threading # <-- Added for background processing
 
 app = FastAPI()
-
-# Tell the app to build the memory IN THE BACKGROUND once the server starts
-@app.on_event("startup")
-async def startup_event():
-    print("🚀 Server starting up... launching memory builder in background.")
-    # This stops the heavy embedding model from blocking Render's port check
-    thread = threading.Thread(target=build_knowledge_base)
-    thread.start()
 
 # Cloud-safe CORS settings
 app.add_middleware(
@@ -30,8 +17,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ... (Keep the rest of your ChatPayload and /chat endpoint exactly the same below this)
 
 class ChatPayload(BaseModel):
     message: str
@@ -60,6 +45,6 @@ async def chat_endpoint(payload: ChatPayload):
 
 if __name__ == "__main__":
     import uvicorn
-    # Render explicitly looks for port 10000 in your logs (image_2b49ba.png)
+    # Render explicitly looks for port 10000 in your logs
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)

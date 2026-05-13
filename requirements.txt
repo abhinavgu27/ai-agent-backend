@@ -2,8 +2,3 @@ fastapi
 uvicorn
 groq
 python-dotenv
-langchain-huggingface
-langchain-text-splitters
-chromadb
-sentence-transformers
-pysqlite3-binary
