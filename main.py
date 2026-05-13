@@ -3,20 +3,32 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from brain import engine
+from memory import build_knowledge_base
 import json
 import os
 import asyncio
+import threading # <-- Added for background processing
 
 app = FastAPI()
 
-# 🛡️ Finalized CORS for Vercel <-> Render communication
+# Tell the app to build the memory IN THE BACKGROUND once the server starts
+@app.on_event("startup")
+async def startup_event():
+    print("🚀 Server starting up... launching memory builder in background.")
+    # This stops the heavy embedding model from blocking Render's port check
+    thread = threading.Thread(target=build_knowledge_base)
+    thread.start()
+
+# Cloud-safe CORS settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,  # Required False for universal origins
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ... (Keep the rest of your ChatPayload and /chat endpoint exactly the same below this)
 
 class ChatPayload(BaseModel):
     message: str
