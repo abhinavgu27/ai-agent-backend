@@ -235,28 +235,33 @@ function App() {
   }, [input]);
 
   // 🎙️ NEW: Audio Playback Engine
-  const playAudio = async (text) => {
+// 🎙️ NEW & IMPROVED: Browser-Native Audio Engine
+  const playAudio = (text) => {
       if (!voiceMode) return;
-      setIsSpeaking(true);
-      try {
-          const response = await fetch(`${BACKEND_URL}/speak`, {
-              method: 'POST',
-              headers: authHeaders,
-              body: JSON.stringify({ text })
-          });
-          if (!response.ok) throw new Error("Audio failed");
-          
-          const blob = await response.blob();
-          const audioUrl = URL.createObjectURL(blob);
-          const audio = new Audio(audioUrl);
-          audioRef.current = audio;
-          
-          audio.onended = () => setIsSpeaking(false);
-          await audio.play();
-      } catch (error) {
-          console.error("Voice playback error:", error);
-          setIsSpeaking(false);
-      }
+      
+      // Stop any current speech
+      window.speechSynthesis.cancel();
+
+      // Strip out the "Scanning web" text for cleaner speech
+      const cleanText = text.replace(/\*\(🌐 Scanning the live web...\)\*\n\n/g, "");
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      
+      // Select a professional sounding voice (optional)
+      const voices = window.speechSynthesis.getVoices();
+      // Try to find a nice Google or Microsoft natural voice
+      const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Natural"));
+      if (preferredVoice) utterance.voice = preferredVoice;
+
+      utterance.rate = 1.0; // Normal speed
+      utterance.pitch = 1.0;
+
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+
+      window.speechSynthesis.speak(utterance);
+  };
   };
 
   const handleSend = async (e) => {
