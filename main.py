@@ -13,7 +13,7 @@ import io
 import PyPDF2
 import base64
 import urllib.parse 
-from groq import Groq # <-- NEW: Import Groq to generate dynamic code artifacts
+from groq import Groq 
 
 # Import vision analysis along with existing functions
 from brain import ask, generate_audio, analyze_image
@@ -180,7 +180,7 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
         
         if is_image_request:
             safe_prompt = urllib.parse.quote(payload.message)
-            image_url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){safe_prompt}?width=1024&height=1024&nologo=true"
+            image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
             
             genui_payload = {
                 "type": "genui_event",
@@ -215,7 +215,12 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             return
 
         # --- 🌐 GEN-UI INTERCEPTOR 3: DYNAMIC LIVE CODE ARTIFACTS ---
-        is_code_request = any(trigger in prompt_lower for trigger in ["build a clock", "code a website", "html", "react component", "build a timer", "build calculator", "build a calculator"])
+        # Only trigger if they use an action verb (build/create) AND a UI noun (calculator/app)
+        is_build_verb = any(v in prompt_lower for v in ["build", "create", "make", "generate", "code me", "write a"])
+        is_app_noun = any(n in prompt_lower for n in ["calculator", "clock", "timer", "website", "app", "ui", "component", "game"])
+        
+        # Don't trigger if they are just asking to "show" or "give" the code
+        is_code_request = is_build_verb and is_app_noun and not any(skip in prompt_lower for skip in ["give", "show", "what is", "how to"])
         
         if is_code_request:
             # Tell the frontend we are compiling so it doesn't just sit there frozen

@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from groq import Groq
 from tavily import TavilyClient
 from datetime import datetime
-from PIL import Image
 
 load_dotenv()
 
@@ -27,7 +26,6 @@ def execute_python_code(code: str):
     old_stdout = sys.stdout
     try:
         sys.stdout = output_buffer
-        # Limited scope for safety with common modules pre-loaded
         exec_scope = {
             "math": __import__("math"), 
             "datetime": __import__("datetime"),
@@ -44,7 +42,6 @@ def execute_python_code(code: str):
         return f"Execution Error: {str(e)}"
 
 def execute_terminal_command(command: str):
-    """Executes a system shell command and returns the output."""
     try:
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=15)
         output = result.stdout if result.stdout else result.stderr
@@ -54,7 +51,6 @@ def execute_terminal_command(command: str):
     except Exception as e:
         return f"Terminal Error: {str(e)}"
 
-# Define Tool Schemas for Llama 3.3
 AGENT_TOOLS = [
     {
         "type": "function",
@@ -78,7 +74,7 @@ AGENT_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "The shell command to run (e.g., 'df -h', 'uptime')."}
+                    "command": {"type": "string", "description": "The shell command to run."}
                 },
                 "required": ["command"],
             },
@@ -107,15 +103,18 @@ def analyze_image(base64_image, user_prompt="Analyze this image in detail."):
         return f"Vision Error: {str(e)}"
 
 # ==========================================
-# 🧠 CORE AGENTIC REASONING (WITH PHASE 4 REFLECTION)
+# 🧠 CORE AGENTIC REASONING (WITH FIXES)
 # ==========================================
 def ask(user_message, history=[]):
     current_date = datetime.now().strftime("%B %d, %Y")
+    
+    # --- UPDATED SYSTEM PROMPT: STOPPING TOOL OVERUSE ---
     system_prompt = (
         f"You are AGENT OS, a high-performance system. Date: {current_date}. "
         "You have 'execute_python_code' and 'execute_terminal_command'. "
-        "CRITICAL: If a tool returns an ERROR, do not give up. Analyze the error message, "
-        "fix your logic, and call the tool again until you get the correct result."
+        "CRITICAL RULES:\n"
+        "1. If a tool returns an ERROR, do not give up. Analyze the error, fix your logic, and call the tool again.\n"
+        "2. DO NOT use the python tool just to print out text or HTML code that you already have in memory! If the user asks for code you previously generated, just format it in standard markdown blocks directly in your response."
     )
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -123,13 +122,11 @@ def ask(user_message, history=[]):
         messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
     messages.append({"role": "user", "content": user_message})
 
-    # Reflection Loop Settings (Max 3 attempts to fix bugs internally)
     max_iterations = 3 
     iterations = 0
 
     try:
         while iterations < max_iterations:
-            # Step 1: Decision/Action Call
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=messages,
@@ -140,7 +137,6 @@ def ask(user_message, history=[]):
             response_message = response.choices[0].message
             tool_calls = response_message.tool_calls
 
-            # If the AI decides it has finished using tools
             if not tool_calls:
                 completion = client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
@@ -152,11 +148,16 @@ def ask(user_message, history=[]):
                         yield chunk.choices[0].delta.content
                 break
 
-            # If tools ARE requested
             messages.append(response_message)
             for tool_call in tool_calls:
                 function_name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments)
+                try:
+                    args = json.loads(tool_call.function.arguments)
+                except json.JSONDecodeError:
+                    # Catch the exact JSON error you experienced!
+                    result = "Execution Error: Invalid JSON syntax in tool arguments. You probably didn't escape quotes properly. Just output the text directly without using a tool!"
+                    messages.append({ "tool_call_id": tool_call.id, "role": "tool", "name": function_name, "content": result })
+                    continue
                 
                 if function_name == "execute_python_code":
                     yield f"*(⚙️ Running Logic - Attempt {iterations + 1}...)*\n\n"
@@ -165,7 +166,6 @@ def ask(user_message, history=[]):
                     yield f"*(💻 Accessing System - Attempt {iterations + 1}...)*\n\n"
                     result = execute_terminal_command(args.get("command"))
                 
-                # Feedback loop: Store result (even errors) to let the AI fix itself
                 messages.append({
                     "tool_call_id": tool_call.id,
                     "role": "tool",
