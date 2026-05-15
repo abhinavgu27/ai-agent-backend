@@ -188,7 +188,9 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             yield f"data: {json.dumps(genui_payload)}\n\n"
             
             await save_message(current_user, payload.session_id, "user", payload.message)
-            await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Image - {payload.message}]")
+            # Inject the actual code into the LLM's memory so it can answer follow-up questions!
+            memory_context = f"I successfully generated the live web preview. Here is the exact code I used:\n```html\n{html_payload}\n```"
+            await save_message(current_user, payload.session_id, "assistant", memory_context)
             return
 
         # --- 💻 GEN-UI INTERCEPTOR 2: TERMINAL CONSOLE ---
