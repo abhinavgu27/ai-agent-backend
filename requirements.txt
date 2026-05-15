@@ -8,3 +8,4 @@ PyPDF2
 tavily-python
 PyJWT
 pwdlib[argon2]
+requests
