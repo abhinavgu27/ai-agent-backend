@@ -7,5 +7,4 @@ python-multipart
 PyPDF2
 tavily-python
 PyJWT
-passlib
-bcrypt
+pwdlib[argon2]
