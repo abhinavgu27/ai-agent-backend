@@ -3,17 +3,16 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Cpu, Loader2, Paperclip, X, Plus, MessageSquare, LogOut, Lock, Check, Globe } from 'lucide-react';
+import { Send, Bot, User, Cpu, Loader2, Paperclip, X, Plus, MessageSquare, LogOut, Lock, Check, Globe, Volume2, VolumeX } from 'lucide-react';
 
 const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
 
 // ==========================================
-// 🎨 NEW: PRO MESSAGE RENDERER
+// 🎨 PRO MESSAGE RENDERER
 // ==========================================
 const RenderMessage = ({ content }) => {
   const [copiedCode, setCopiedCode] = useState(null);
 
-  // Intercept the web search string and turn it into a UI element
   const hasWebSearch = content.includes("*(🌐 Scanning the live web...)*");
   const cleanContent = content.replace("*(🌐 Scanning the live web...)*\n\n", "");
 
@@ -132,9 +131,14 @@ function App() {
   const [activeFiles, setActiveFiles] = useState([]); 
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(Date.now().toString());
+  
+  // 🎙️ NEW: Voice Mode State
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const audioRef = useRef(null); // Reference to hold the current audio object
 
   const handleAuth = async (e) => {
       e.preventDefault();
@@ -170,6 +174,7 @@ function App() {
       localStorage.removeItem("agent_os_user");
       setChatLog([]);
       setSessions([]);
+      if (audioRef.current) audioRef.current.pause(); // Stop talking if logging out
   };
 
   useEffect(() => {
@@ -206,11 +211,13 @@ function App() {
   const startNewChat = () => {
       setCurrentSessionId(Date.now().toString());
       setChatLog([]);
+      if (audioRef.current) audioRef.current.pause();
   };
 
   const loadSession = async (sessionId) => {
       setChatLog([]); 
       setCurrentSessionId(sessionId);
+      if (audioRef.current) audioRef.current.pause();
       try {
           const response = await fetch(`${BACKEND_URL}/history/${sessionId}`, { headers: authHeaders });
           const data = await response.json();
@@ -227,9 +234,36 @@ function App() {
     }
   }, [input]);
 
+  // 🎙️ NEW: Audio Playback Engine
+  const playAudio = async (text) => {
+      if (!voiceMode) return;
+      setIsSpeaking(true);
+      try {
+          const response = await fetch(`${BACKEND_URL}/speak`, {
+              method: 'POST',
+              headers: authHeaders,
+              body: JSON.stringify({ text })
+          });
+          if (!response.ok) throw new Error("Audio failed");
+          
+          const blob = await response.blob();
+          const audioUrl = URL.createObjectURL(blob);
+          const audio = new Audio(audioUrl);
+          audioRef.current = audio;
+          
+          audio.onended = () => setIsSpeaking(false);
+          await audio.play();
+      } catch (error) {
+          console.error("Voice playback error:", error);
+          setIsSpeaking(false);
+      }
+  };
+
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || isTyping) return;
+    
+    if (audioRef.current) audioRef.current.pause(); // Cut off current speech if user interrupts
 
     const currentInput = input;
     setInput('');
@@ -239,13 +273,14 @@ function App() {
     setChatLog([...newHistory, { role: "assistant", content: "" }]);
     setIsTyping(true);
 
+    let fullAiText = "";
+
     try {
       const response = await fetch(`${BACKEND_URL}/chat`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ message: currentInput, session_id: currentSessionId }) });
       if(response.status === 401) { handleLogout(); return; }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
-      let fullAiText = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -268,6 +303,12 @@ function App() {
         }
       }
       fetchSessions(); 
+      
+      // 🎙️ Play audio once text is fully generated
+      if (voiceMode && fullAiText.trim()) {
+          playAudio(fullAiText);
+      }
+      
     } catch (err) {
       setChatLog(prev => [...prev, { role: "assistant", content: "⚠️ **System Error:** Neural link severed." }]);
     } finally { setIsTyping(false); }
@@ -343,12 +384,25 @@ function App() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         <header style={{ padding: '20px 30px', backdropFilter: 'blur(20px)', backgroundColor: 'rgba(10, 10, 10, 0.7)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '8px', height: '8px', backgroundColor: '#10a37f', borderRadius: '50%', boxShadow: '0 0 12px #10a37f', animation: 'pulse 2s infinite' }}></div>
-            <span style={{ fontWeight: '600', letterSpacing: '1px', fontSize: '0.95rem' }}>AGENT OS</span>
+            <div style={{ width: '8px', height: '8px', backgroundColor: isSpeaking ? '#6E2CF2' : '#10a37f', borderRadius: '50%', boxShadow: `0 0 12px ${isSpeaking ? '#6E2CF2' : '#10a37f'}`, animation: isSpeaking ? 'pulse 1s infinite' : 'pulse 2s infinite' }}></div>
+            <span style={{ fontWeight: '600', letterSpacing: '1px', fontSize: '0.95rem' }}>AGENT OS {isSpeaking && <span style={{color: '#6E2CF2', fontSize: '0.75rem', marginLeft: '8px'}}>(SPEAKING...)</span>}</span>
           </div>
-          <div style={{ fontSize: '0.8rem', color: '#555', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(255,255,255,0.03)', padding: '6px 12px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            {isTyping && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
-            Llama-3.3-70B-Speculative
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            {/* 🎙️ Voice Mode Toggle */}
+            <button 
+                onClick={() => { setVoiceMode(!voiceMode); if (audioRef.current) audioRef.current.pause(); setIsSpeaking(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: voiceMode ? '#10a37f' : '#666', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', transition: 'color 0.2s' }}
+                title={voiceMode ? "Voice Mode ON" : "Voice Mode OFF"}
+            >
+                {voiceMode ? <Volume2 size={18} /> : <VolumeX size={18} />}
+                {voiceMode ? "VOICE ON" : "VOICE OFF"}
+            </button>
+
+            <div style={{ fontSize: '0.8rem', color: '#555', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(255,255,255,0.03)', padding: '6px 12px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              {isTyping && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+              Llama-3.3-70B-Speculative
+            </div>
           </div>
         </header>
 
