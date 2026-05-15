@@ -1,9 +1,12 @@
 import os
+import base64
+import requests
+import io
 from dotenv import load_dotenv
 from groq import Groq
 from tavily import TavilyClient
 from datetime import datetime
-import requests
+from PIL import Image
 
 load_dotenv()
 
@@ -11,8 +14,40 @@ load_dotenv()
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 tavily_client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
-VOICE_ID = os.environ.get("VOICE_ID", "N2lVS1w4EtoT3dr4eOWO") # Default to Callum if missing
+VOICE_ID = os.environ.get("VOICE_ID", "N2lVS1w4EtoT3dr4eOWO") # Default to Callum
 
+# ==========================================
+# 👁️ PHASE 1: VISION ANALYSIS LAYER
+# ==========================================
+def analyze_image(base64_image, user_prompt="Analyze this image in detail for a professional assistant."):
+    """Sends a base64 encoded image to the Llama-3.2-Vision model."""
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.2-11b-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            },
+                        },
+                    ],
+                }
+            ],
+            max_tokens=1024,
+            temperature=0.5
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Vision Analysis Error: {str(e)}"
+
+# ==========================================
+# 🌐 WEB SEARCH LAYER
+# ==========================================
 def needs_web_search(user_message):
     try:
         response = client.chat.completions.create(
@@ -35,15 +70,20 @@ def perform_web_search(query):
     except Exception:
         return ""
 
+# ==========================================
+# 🧠 CORE REASONING ENGINE
+# ==========================================
 def ask(user_message, history=[]):
     current_date = datetime.now().strftime("%B %d, %Y")
     
     system_prompt = (
         f"You are AGENT OS, a high-performance, professional AI assistant. "
         f"Today's date is {current_date}. "
-        "Provide clear, accurate, and helpful responses. Keep your answers concise, especially if the user is listening via voice."
+        "You have multimodal capabilities and can analyze images and web data. "
+        "Provide clear, accurate, and helpful responses. Keep your answers concise for voice compatibility."
     )
 
+    # Trigger Web Search if needed
     if needs_web_search(user_message):
         yield "*(🌐 Scanning the live web...)*\n\n"
         web_data = perform_web_search(user_message)
@@ -51,7 +91,8 @@ def ask(user_message, history=[]):
             system_prompt += f"\n\n[LIVE WEB SEARCH RESULTS]:\n{web_data}\n\nUse this live data to answer accurately."
 
     messages = [{"role": "system", "content": system_prompt}]
-    for msg in history: messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+    for msg in history: 
+        messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
     messages.append({"role": "user", "content": user_message})
 
     try:
@@ -68,7 +109,7 @@ def ask(user_message, history=[]):
         yield f"⚠️ Neural Link Error: {str(e)}"
 
 # ==========================================
-# 🎙️ NEW: VOICE SYNTHESIS LAYER
+# 🎙️ VOICE SYNTHESIS LAYER
 # ==========================================
 def generate_audio(text):
     """Takes the final AI text and requests an audio stream from ElevenLabs."""
@@ -85,11 +126,10 @@ def generate_audio(text):
     
     data = {
         "text": text,
-        "model_id": "eleven_turbo_v2_5", # The ultra-low latency model
+        "model_id": "eleven_turbo_v2_5",
         "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
     }
     
-    # Request the audio stream from ElevenLabs
     response = requests.post(url, json=data, headers=headers, stream=True)
     
     if response.status_code != 200:

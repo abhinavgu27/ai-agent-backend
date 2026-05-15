@@ -11,8 +11,10 @@ import asyncio
 import os
 import io
 import PyPDF2
+import base64
 
-from brain import ask, generate_audio
+# Import vision analysis along with existing functions
+from brain import ask, generate_audio, analyze_image
 from database import (
     create_user_in_db, get_user_from_db,
     save_message, get_history, get_all_sessions,
@@ -93,7 +95,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": access_token, "token_type": "bearer"}
 
 # ==========================================
-# 📂 FILE & SESSION ENDPOINTS (PROTECTED)
+# 📂 FILE & SESSION ENDPOINTS (UPGRADED FOR VISION)
 # ==========================================
 class ChatPayload(BaseModel):
     message: str
@@ -103,13 +105,30 @@ class ChatPayload(BaseModel):
 async def upload_file(file: UploadFile = File(...), session_id: str = Form(...), current_user: str = Depends(get_current_user)):
     content = ""
     try:
-        if file.filename.endswith(".pdf"):
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(await file.read()))
+        file_bytes = await file.read()
+        filename = file.filename.lower()
+
+        # --- 👁️ NEW: VISION PROCESSING ---
+        if filename.endswith((".png", ".jpg", ".jpeg")):
+            # Convert to Base64
+            encoded_image = base64.b64encode(file_bytes).decode('utf-8')
+            
+            # Analyze image using Llama-3.2-Vision
+            description = analyze_image(encoded_image)
+            
+            # Wrap description as context
+            content = f"[VISUAL DATA FROM IMAGE {file.filename}]: {description}"
+            await save_file_context(current_user, session_id, file.filename, content)
+            return {"status": "Success", "message": f"Image {file.filename} analyzed and stored."}
+
+        # --- EXISTING: PDF/TEXT PROCESSING ---
+        elif filename.endswith(".pdf"):
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
             for page in pdf_reader.pages:
                 extracted = page.extract_text()
                 if extracted: content += extracted + "\n"
-        elif file.filename.endswith((".txt", ".md")):
-            content = (await file.read()).decode("utf-8")
+        elif filename.endswith((".txt", ".md")):
+            content = file_bytes.decode("utf-8")
         else:
             return {"status": "Error", "message": "Unsupported file format."}
 
@@ -118,6 +137,7 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...),
             return {"status": "Success", "message": f"{file.filename} attached to session."}
         else:
             return {"status": "Error", "message": "File is empty."}
+            
     except Exception as e:
         return {"status": "Error", "message": str(e)}
 
@@ -174,11 +194,8 @@ class AudioPayload(BaseModel):
 
 @app.post("/speak")
 async def speak_endpoint(payload: AudioPayload, current_user: str = Depends(get_current_user)):
-    """Receives text, generates audio via ElevenLabs, and streams it back."""
     try:
-        # Strip out the web search text so the AI doesn't read it out loud
         clean_text = payload.text.replace("*(🌐 Scanning the live web...)*\n\n", "")
-        
         audio_stream = generate_audio(clean_text)
         return StreamingResponse(audio_stream, media_type="audio/mpeg")
     except Exception as e:
