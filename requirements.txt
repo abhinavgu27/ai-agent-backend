@@ -6,3 +6,5 @@ motor
 python-multipart
 PyPDF2
 tavily-python
+pyjwt
+passlib[bcrypt]

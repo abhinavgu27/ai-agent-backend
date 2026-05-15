@@ -14,13 +14,26 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client.agent_os_pro
 chats_collection = db.conversations
 knowledge_collection = db.knowledge
+users_collection = db.users  # NEW: Users collection
 
 # ==========================================
-# 💬 CHAT MEMORY 
+# 🔒 USER AUTHENTICATION
 # ==========================================
-async def save_message(session_id: str, role: str, content: str):
+async def create_user_in_db(username, hashed_password):
+    """Saves a new user to the database."""
+    await users_collection.insert_one({"username": username, "password": hashed_password})
+
+async def get_user_from_db(username):
+    """Retrieves a user by username."""
+    return await users_collection.find_one({"username": username})
+
+# ==========================================
+# 💬 CHAT MEMORY (ISOLATED BY USER AND SESSION)
+# ==========================================
+async def save_message(username: str, session_id: str, role: str, content: str):
     try:
         await chats_collection.insert_one({
+            "username": username,
             "session_id": session_id,
             "role": role, 
             "content": content
@@ -28,19 +41,19 @@ async def save_message(session_id: str, role: str, content: str):
     except Exception as e:
         print(f"❌ DB Save Error: {e}")
 
-async def get_history(session_id: str, limit: int = 10):
+async def get_history(username: str, session_id: str, limit: int = 10):
     try:
-        cursor = chats_collection.find({"session_id": session_id}).sort("_id", -1).limit(limit)
+        cursor = chats_collection.find({"username": username, "session_id": session_id}).sort("_id", -1).limit(limit)
         docs = await cursor.to_list(length=limit)
         return [{"role": d["role"], "content": d["content"]} for d in reversed(docs)]
     except Exception as e:
         print(f"❌ DB Fetch Error: {e}")
         return []
 
-async def get_all_sessions():
+async def get_all_sessions(username: str):
     try:
         pipeline = [
-            {"$match": {"role": "user"}}, 
+            {"$match": {"username": username, "role": "user"}}, 
             {"$group": {
                 "_id": "$session_id", 
                 "title": {"$first": "$content"}, 
@@ -56,31 +69,32 @@ async def get_all_sessions():
         return []
 
 # ==========================================
-# 🗂️ KNOWLEDGE BASE (ISOLATED BY SESSION)
+# 🗂️ KNOWLEDGE BASE (ISOLATED BY USER AND SESSION)
 # ==========================================
-async def save_file_context(session_id: str, filename: str, content: str):
+async def save_file_context(username: str, session_id: str, filename: str, content: str):
     await knowledge_collection.insert_one({
+        "username": username,
         "session_id": session_id,
         "filename": filename,
         "content": content
     })
 
-async def get_all_file_context(session_id: str):
-    cursor = knowledge_collection.find({"session_id": session_id})
+async def get_all_file_context(username: str, session_id: str):
+    cursor = knowledge_collection.find({"username": username, "session_id": session_id})
     docs = await cursor.to_list(length=100)
     return "\n".join([d["content"] for d in docs])
 
-async def get_uploaded_filenames(session_id: str):
+async def get_uploaded_filenames(username: str, session_id: str):
     try:
-        cursor = knowledge_collection.find({"session_id": session_id}, {"filename": 1, "_id": 0})
+        cursor = knowledge_collection.find({"username": username, "session_id": session_id}, {"filename": 1, "_id": 0})
         docs = await cursor.to_list(length=100)
         return list(set([d.get("filename") for d in docs if "filename" in d]))
     except Exception as e:
         print(f"❌ Fetch Filenames Error: {e}")
         return []
 
-async def clear_session_knowledge(session_id: str):
+async def clear_session_knowledge(username: str, session_id: str):
     try:
-        await knowledge_collection.delete_many({"session_id": session_id})
+        await knowledge_collection.delete_many({"username": username, "session_id": session_id})
     except Exception as e:
         print(f"❌ Delete Knowledge Error: {e}")
