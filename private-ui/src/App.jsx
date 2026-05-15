@@ -2,14 +2,14 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useState, useRef, useEffect } from 'react';
-import { Send, Terminal, Bot, User, Trash2, Cpu, Loader2, Paperclip, X, Plus, MessageSquare } from 'lucide-react';
+import { Send, Terminal, Bot, User, Trash2, Cpu, Loader2, Paperclip, X, Plus, MessageSquare, LogOut, Lock } from 'lucide-react';
 
-const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
+const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com"; // Your Render URL
 
 // ==========================================
 // 📂 FILE UPLOAD COMPONENT
 // ==========================================
-function FileUploadButton({ onUploadSuccess, currentSessionId }) {
+function FileUploadButton({ onUploadSuccess, currentSessionId, token }) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const fileInputRef = useRef(null);
@@ -20,7 +20,7 @@ function FileUploadButton({ onUploadSuccess, currentSessionId }) {
 
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("session_id", currentSessionId); // Attach it to the specific session!
+      formData.append("session_id", currentSessionId); 
 
       setIsUploading(true);
       setUploadStatus("..."); 
@@ -28,6 +28,9 @@ function FileUploadButton({ onUploadSuccess, currentSessionId }) {
       try {
           const response = await fetch(`${BACKEND_URL}/upload`, {
               method: "POST",
+              headers: {
+                  "Authorization": `Bearer ${token}` // 🔒 Secure Auth Header
+              },
               body: formData,
           });
 
@@ -52,41 +55,15 @@ function FileUploadButton({ onUploadSuccess, currentSessionId }) {
 
   return (
       <div style={{ display: 'flex', alignItems: 'center', position: 'relative', marginBottom: '4px', marginLeft: '4px' }}>
-          <input 
-              type="file" 
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept=".txt,.md,.pdf" 
-              style={{ display: 'none' }} 
-          />
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".txt,.md,.pdf" style={{ display: 'none' }} />
           <button 
-              type="button"
-              onClick={() => fileInputRef.current.click()}
-              disabled={isUploading}
-              title="Upload Document (PDF, TXT, MD)"
-              style={{ 
-                  backgroundColor: 'transparent', 
-                  color: isUploading ? '#10a37f' : '#888', 
-                  border: 'none', 
-                  width: '40px', 
-                  height: '40px', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
-                  cursor: isUploading ? 'default' : 'pointer', 
-                  transition: 'all 0.2s' 
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
-              onMouseLeave={(e) => e.currentTarget.style.color = isUploading ? '#10a37f' : '#888'}
+              type="button" onClick={() => fileInputRef.current.click()} disabled={isUploading}
+              style={{ backgroundColor: 'transparent', color: isUploading ? '#10a37f' : '#888', border: 'none', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isUploading ? 'default' : 'pointer', transition: 'all 0.2s' }}
+              onMouseEnter={(e) => e.currentTarget.style.color = '#fff'} onMouseLeave={(e) => e.currentTarget.style.color = isUploading ? '#10a37f' : '#888'}
           >
               {isUploading ? <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> : <Paperclip size={20} />}
           </button>
-          
-          {uploadStatus && (
-              <span style={{ position: 'absolute', top: '-25px', left: '10px', fontSize: '0.8rem', animation: 'fadeIn 0.3s' }}>
-                  {uploadStatus}
-              </span>
-          )}
+          {uploadStatus && <span style={{ position: 'absolute', top: '-25px', left: '10px', fontSize: '0.8rem', animation: 'fadeIn 0.3s' }}>{uploadStatus}</span>}
       </div>
   );
 }
@@ -95,77 +72,141 @@ function FileUploadButton({ onUploadSuccess, currentSessionId }) {
 // 🚀 MAIN APP COMPONENT
 // ==========================================
 function App() {
+  // 🔒 Auth State
+  const [token, setToken] = useState(localStorage.getItem("agent_os_token") || null);
+  const [username, setUsername] = useState(localStorage.getItem("agent_os_user") || "");
+  const [authMode, setAuthMode] = useState("login"); // "login" or "register"
+  const [authError, setAuthError] = useState("");
+  const [authInputUser, setAuthInputUser] = useState("");
+  const [authInputPass, setAuthInputPass] = useState("");
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  // 💬 Chat State
   const [input, setInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
   const [activeFiles, setActiveFiles] = useState([]); 
-  
-  // 💬 SESSION STATE
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(Date.now().toString());
 
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Auto-fetch files and history when session changes
-  useEffect(() => {
-    fetchSessions();
-  }, []);
+  // ==========================================
+  // 🔒 AUTHENTICATION LOGIC
+  // ==========================================
+  const handleAuth = async (e) => {
+      e.preventDefault();
+      setIsAuthenticating(true);
+      setAuthError("");
 
+      try {
+          if (authMode === "register") {
+              const res = await fetch(`${BACKEND_URL}/register`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ username: authInputUser, password: authInputPass })
+              });
+              if (!res.ok) throw new Error("Username already taken");
+              setAuthMode("login");
+              setAuthError("Registration successful! Please log in.");
+          } else {
+              const formData = new URLSearchParams();
+              formData.append("username", authInputUser);
+              formData.append("password", authInputPass);
+
+              const res = await fetch(`${BACKEND_URL}/login`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                  body: formData
+              });
+              
+              if (!res.ok) throw new Error("Invalid credentials");
+              
+              const data = await res.json();
+              setToken(data.access_token);
+              setUsername(authInputUser);
+              localStorage.setItem("agent_os_token", data.access_token);
+              localStorage.setItem("agent_os_user", authInputUser);
+          }
+      } catch (err) {
+          setAuthError(err.message);
+      } finally {
+          setIsAuthenticating(false);
+      }
+  };
+
+  const handleLogout = () => {
+      setToken(null);
+      setUsername("");
+      localStorage.removeItem("agent_os_token");
+      localStorage.removeItem("agent_os_user");
+      setChatLog([]);
+      setSessions([]);
+  };
+
+  // ==========================================
+  // 💬 CHAT LOGIC (PROTECTED)
+  // ==========================================
   useEffect(() => {
-    fetchFiles();
-  }, [currentSessionId]);
+    if (token) {
+        fetchSessions();
+        fetchFiles();
+    }
+  }, [token, currentSessionId]);
+
+  const authHeaders = {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+  };
 
   const fetchFiles = async () => {
+    if(!token) return;
     try {
-      const response = await fetch(`${BACKEND_URL}/files/${currentSessionId}`);
+      const response = await fetch(`${BACKEND_URL}/files/${currentSessionId}`, { headers: authHeaders });
       const data = await response.json();
       setActiveFiles(data.files || []);
-    } catch (err) { console.error("Could not fetch files:", err); }
+    } catch (err) { console.error("Could not fetch files"); }
   };
 
   const fetchSessions = async () => {
+    if(!token) return;
     try {
-      const response = await fetch(`${BACKEND_URL}/sessions`);
+      const response = await fetch(`${BACKEND_URL}/sessions`, { headers: authHeaders });
       const data = await response.json();
       setSessions(data.sessions || []);
-    } catch (err) { console.error("Could not fetch sessions:", err); }
+    } catch (err) { 
+        if(err.message.includes("401")) handleLogout(); // Auto logout if token expires
+    }
   };
 
   const handleClearFiles = async () => {
     try {
-      await fetch(`${BACKEND_URL}/files/${currentSessionId}`, { method: 'DELETE' });
+      await fetch(`${BACKEND_URL}/files/${currentSessionId}`, { method: 'DELETE', headers: authHeaders });
       setActiveFiles([]);
-    } catch (err) { console.error("Could not clear files:", err); }
+    } catch (err) { console.error("Could not clear files"); }
   };
 
-  // Handle Starting a New Chat
   const startNewChat = () => {
       setCurrentSessionId(Date.now().toString());
       setChatLog([]);
   };
 
   const loadSession = async (sessionId) => {
-      setChatLog([]); // Clear the screen first
+      setChatLog([]); 
       setCurrentSessionId(sessionId);
-      
       try {
-          const response = await fetch(`${BACKEND_URL}/history/${sessionId}`);
+          const response = await fetch(`${BACKEND_URL}/history/${sessionId}`, { headers: authHeaders });
           const data = await response.json();
-          
           if (data.history && data.history.length > 0) {
               setChatLog(data.history); 
           } else {
               setChatLog([{ role: 'assistant', content: '⚡ **Session Linked:** Memory restored.' }]);
           }
-      } catch (err) {
-          console.error("Could not load visual history:", err);
-      }
+      } catch (err) { console.error("Could not load history"); }
   };
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatLog]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -189,9 +230,11 @@ function App() {
     try {
       const response = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({ message: currentInput, session_id: currentSessionId })
       });
+
+      if(response.status === 401) { handleLogout(); return; }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -214,11 +257,11 @@ function App() {
                   newLog[newLog.length - 1].content = fullAiText;
                   return newLog;
                 });
-            } catch (e) { /* ignore parse error */ }
+            } catch (e) {}
           }
         }
       }
-      fetchSessions(); // Refresh sidebar titles
+      fetchSessions(); 
     } catch (err) {
       setChatLog(prev => [...prev, { role: "assistant", content: "⚠️ **System Error:** Neural link severed." }]);
     } finally {
@@ -227,12 +270,57 @@ function App() {
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  // ==========================================
+  // 🎨 RENDER: AUTHENTICATION SCREEN
+  // ==========================================
+  if (!token) {
+      return (
+          <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0D0D0D', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'Inter, sans-serif' }}>
+              <div style={{ width: '100%', maxWidth: '400px', padding: '40px', backgroundColor: '#141414', borderRadius: '16px', border: '1px solid #222', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+                  <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+                      <div style={{ width: '40px', height: '40px', backgroundColor: '#10a37f', borderRadius: '12px', margin: '0 auto 15px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(16, 163, 127, 0.4)' }}>
+                          <Lock size={20} color="#fff" />
+                      </div>
+                      <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '600', letterSpacing: '1px' }}>AGENT OS // PRO</h2>
+                      <p style={{ color: '#888', fontSize: '0.9rem', marginTop: '8px' }}>
+                          {authMode === "login" ? "Authenticate to access your neural link." : "Create a new secure workspace."}
+                      </p>
+                  </div>
+
+                  <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      <input 
+                          type="text" placeholder="Username" value={authInputUser} onChange={e => setAuthInputUser(e.target.value)} required
+                          style={{ padding: '14px', borderRadius: '8px', border: '1px solid #333', backgroundColor: '#000', color: '#fff', outline: 'none', fontSize: '1rem' }}
+                      />
+                      <input 
+                          type="password" placeholder="Password" value={authInputPass} onChange={e => setAuthInputPass(e.target.value)} required
+                          style={{ padding: '14px', borderRadius: '8px', border: '1px solid #333', backgroundColor: '#000', color: '#fff', outline: 'none', fontSize: '1rem' }}
+                      />
+                      
+                      {authError && <p style={{ color: authError.includes("success") ? '#10a37f' : '#eb5757', fontSize: '0.85rem', margin: '0', textAlign: 'center' }}>{authError}</p>}
+                      
+                      <button type="submit" disabled={isAuthenticating} style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#10a37f', color: '#fff', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                          {isAuthenticating ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : (authMode === "login" ? "INITIALIZE LINK" : "REGISTER")}
+                      </button>
+                  </form>
+
+                  <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '0.85rem', color: '#888' }}>
+                      {authMode === "login" ? "Need an access code? " : "Already have access? "}
+                      <span onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }} style={{ color: '#10a37f', cursor: 'pointer', textDecoration: 'underline' }}>
+                          {authMode === "login" ? "Register here." : "Log in."}
+                      </span>
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
+  // ==========================================
+  // 🎨 RENDER: MAIN APPLICATION
+  // ==========================================
   return (
     <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0D0D0D', color: '#E5E5E5', fontFamily: 'Inter, sans-serif' }}>
       
@@ -241,51 +329,23 @@ function App() {
         
         <button 
           onClick={startNewChat}
-          style={{ 
-            border: '1px solid #333', 
-            borderRadius: '8px', 
-            padding: '12px', 
-            color: 'white', 
-            backgroundColor: 'transparent', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            gap: '10px', 
-            cursor: 'pointer', 
-            marginBottom: '30px',
-            transition: 'all 0.3s ease'
-          }}
+          style={{ border: '1px solid #333', borderRadius: '8px', padding: '12px', color: 'white', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer', marginBottom: '30px', transition: 'all 0.3s ease' }}
           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#1a1a1a'; e.currentTarget.style.borderColor = '#10a37f'; }}
           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = '#333'; }}
         >
-          <Plus size={16} /> New Chat
+          <Plus size={16} /> New Workspace
         </button>
 
         <div style={{ flex: 1, fontSize: '0.8rem', color: '#666', overflowY: 'auto' }}>
-          <p style={{ marginBottom: '12px', fontWeight: 'bold', color: '#888', letterSpacing: '1px', fontSize: '0.7rem' }}>CHAT HISTORY</p>
+          <p style={{ marginBottom: '12px', fontWeight: 'bold', color: '#888', letterSpacing: '1px', fontSize: '0.7rem' }}>SECURE ARCHIVES</p>
           
           {sessions.length === 0 ? (
               <p style={{ textAlign: 'center', opacity: 0.5, marginTop: '20px' }}>No previous sessions.</p>
           ) : (
               sessions.map((session, idx) => (
                   <div 
-                      key={idx}
-                      onClick={() => loadSession(session.session_id)}
-                      style={{ 
-                          padding: '10px', 
-                          borderRadius: '6px', 
-                          backgroundColor: currentSessionId === session.session_id ? '#1a1a1a' : 'transparent', 
-                          borderLeft: currentSessionId === session.session_id ? '3px solid #10a37f' : '3px solid transparent', 
-                          marginBottom: '8px', 
-                          color: currentSessionId === session.session_id ? '#fff' : '#aaa', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '8px',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
-                      }}
+                      key={idx} onClick={() => loadSession(session.session_id)}
+                      style={{ padding: '10px', borderRadius: '6px', backgroundColor: currentSessionId === session.session_id ? '#1a1a1a' : 'transparent', borderLeft: currentSessionId === session.session_id ? '3px solid #10a37f' : '3px solid transparent', marginBottom: '8px', color: currentSessionId === session.session_id ? '#fff' : '#aaa', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                       onMouseEnter={(e) => { if(currentSessionId !== session.session_id) e.currentTarget.style.backgroundColor = '#111'; }}
                       onMouseLeave={(e) => { if(currentSessionId !== session.session_id) e.currentTarget.style.backgroundColor = 'transparent'; }}
                   >
@@ -296,8 +356,17 @@ function App() {
           )}
         </div>
         
-        <div style={{ fontSize: '0.7rem', color: '#444', textAlign: 'center', opacity: 0.7, marginTop: '10px' }}>
-          OS BUILD 2.2.0 // PRO
+        {/* USER PROFILE BTM BAR */}
+        <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid #222', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10a37f' }}>
+                    <User size={16} />
+                </div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ccc' }}>@{username}</div>
+            </div>
+            <button onClick={handleLogout} title="Sever Neural Link" style={{ backgroundColor: 'transparent', border: 'none', color: '#888', cursor: 'pointer' }} onMouseEnter={(e) => e.currentTarget.style.color = '#eb5757'} onMouseLeave={(e) => e.currentTarget.style.color = '#888'}>
+                <LogOut size={16} />
+            </button>
         </div>
       </aside>
 
@@ -320,8 +389,8 @@ function App() {
             {chatLog.length === 0 && (
                 <div style={{ textAlign: 'center', marginTop: '15vh', color: '#444', animation: 'fadeIn 1s ease-in' }}>
                     <Cpu size={56} style={{ marginBottom: '20px', opacity: 0.15 }} />
-                    <h2 style={{ color: '#aaa', fontWeight: '400', letterSpacing: '1px' }}>New Session Initiated</h2>
-                    <p style={{ fontSize: '0.9rem' }}>Context isolated. Ready for new input.</p>
+                    <h2 style={{ color: '#aaa', fontWeight: '400', letterSpacing: '1px' }}>Welcome back, {username}.</h2>
+                    <p style={{ fontSize: '0.9rem' }}>Secure connection established. Ready for input.</p>
                 </div>
             )}
             
@@ -331,7 +400,6 @@ function App() {
                   {msg.role === 'user' ? <User size={18} /> : <Bot size={18} />}
                 </div>
                 <div style={{ flex: 1, lineHeight: '1.7', fontSize: '1rem', color: '#d1d1d1', overflow: 'hidden' }}>
-                  
                   <ReactMarkdown
                     components={{
                       code({node, inline, className, children, ...props}) {
@@ -350,7 +418,6 @@ function App() {
                   >
                     {msg.content}
                   </ReactMarkdown>
-
                 </div>
               </div>
             ))}
@@ -369,28 +436,18 @@ function App() {
                             {filename}
                         </div>
                     ))}
-                    <button 
-                        onClick={handleClearFiles}
-                        title="Clear all attached files for this session"
-                        style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(235, 87, 87, 0.1)', border: '1px solid rgba(235, 87, 87, 0.3)', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', color: '#eb5757', cursor: 'pointer', transition: 'all 0.2s' }}
-                    >
+                    <button onClick={handleClearFiles} title="Clear all attached files for this session" style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(235, 87, 87, 0.1)', border: '1px solid rgba(235, 87, 87, 0.3)', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', color: '#eb5757', cursor: 'pointer', transition: 'all 0.2s' }}>
                         <X size={12} style={{ marginRight: '4px' }} /> Clear Files
                     </button>
                 </div>
             )}
 
             <form style={{ display: 'flex', alignItems: 'flex-end', backgroundColor: '#1A1A1A', borderRadius: '16px', padding: '10px 14px', border: '1px solid #333', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
-              
-              {/* Pass the currentSessionId down so the backend knows where to put the file */}
-              <FileUploadButton onUploadSuccess={fetchFiles} currentSessionId={currentSessionId} />
+              <FileUploadButton onUploadSuccess={fetchFiles} currentSessionId={currentSessionId} token={token} />
               
               <textarea 
-                ref={textareaRef}
-                value={input} 
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Message Agent OS... (Shift+Enter for new line)"
-                rows={1}
+                ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
+                placeholder="Message Agent OS... (Shift+Enter for new line)" rows={1}
                 style={{ flex: 1, padding: '10px', backgroundColor: 'transparent', border: 'none', color: 'white', outline: 'none', fontSize: '1rem', resize: 'none', fontFamily: 'inherit', maxHeight: '200px', lineHeight: '1.5' }}
               />
               <button type="button" onClick={handleSend} disabled={isTyping || !input.trim()} style={{ backgroundColor: (isTyping || !input.trim()) ? '#333' : '#10a37f', color: 'white', border: 'none', borderRadius: '10px', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: (isTyping || !input.trim()) ? 'default' : 'pointer', transition: 'all 0.2s', marginBottom: '4px', flexShrink: 0 }}>
