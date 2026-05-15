@@ -7,12 +7,8 @@ import { Send, Bot, User, Cpu, Loader2, Paperclip, X, Plus, MessageSquare, LogOu
 
 const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
 
-// ==========================================
-// 🎨 PRO MESSAGE RENDERER
-// ==========================================
 const RenderMessage = ({ content }) => {
   const [copiedCode, setCopiedCode] = useState(null);
-
   const hasWebSearch = content.includes("*(🌐 Scanning the live web...)*");
   const cleanContent = content.replace("*(🌐 Scanning the live web...)*\n\n", "");
 
@@ -30,7 +26,6 @@ const RenderMessage = ({ content }) => {
           Gathering live intel from the web...
         </div>
       )}
-      
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -72,9 +67,6 @@ const RenderMessage = ({ content }) => {
   );
 };
 
-// ==========================================
-// 📂 FILE UPLOAD COMPONENT
-// ==========================================
 function FileUploadButton({ onUploadSuccess, currentSessionId, token }) {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
@@ -82,12 +74,10 @@ function FileUploadButton({ onUploadSuccess, currentSessionId, token }) {
   const handleFileChange = async (event) => {
       const file = event.target.files[0];
       if (!file) return;
-
       const formData = new FormData();
       formData.append("file", file);
       formData.append("session_id", currentSessionId); 
       setIsUploading(true);
-
       try {
           const response = await fetch(`${BACKEND_URL}/upload`, {
               method: "POST",
@@ -113,9 +103,6 @@ function FileUploadButton({ onUploadSuccess, currentSessionId, token }) {
   );
 }
 
-// ==========================================
-// 🚀 MAIN APP COMPONENT
-// ==========================================
 function App() {
   const [token, setToken] = useState(localStorage.getItem("agent_os_token") || null);
   const [username, setUsername] = useState(localStorage.getItem("agent_os_user") || "");
@@ -124,27 +111,23 @@ function App() {
   const [authInputUser, setAuthInputUser] = useState("");
   const [authInputPass, setAuthInputPass] = useState("");
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-
   const [input, setInput] = useState('');
   const [chatLog, setChatLog] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
   const [activeFiles, setActiveFiles] = useState([]); 
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(Date.now().toString());
-  
-  // 🎙️ NEW: Voice Mode State
   const [voiceMode, setVoiceMode] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
-  const audioRef = useRef(null); // Reference to hold the current audio object
+  const audioRef = useRef(null);
 
   const handleAuth = async (e) => {
       e.preventDefault();
       setIsAuthenticating(true);
       setAuthError("");
-
       try {
           if (authMode === "register") {
               const res = await fetch(`${BACKEND_URL}/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: authInputUser, password: authInputPass }) });
@@ -174,7 +157,7 @@ function App() {
       localStorage.removeItem("agent_os_user");
       setChatLog([]);
       setSessions([]);
-      if (audioRef.current) audioRef.current.pause(); // Stop talking if logging out
+      window.speechSynthesis.cancel();
   };
 
   useEffect(() => {
@@ -211,13 +194,13 @@ function App() {
   const startNewChat = () => {
       setCurrentSessionId(Date.now().toString());
       setChatLog([]);
-      if (audioRef.current) audioRef.current.pause();
+      window.speechSynthesis.cancel();
   };
 
   const loadSession = async (sessionId) => {
       setChatLog([]); 
       setCurrentSessionId(sessionId);
-      if (audioRef.current) audioRef.current.pause();
+      window.speechSynthesis.cancel();
       try {
           const response = await fetch(`${BACKEND_URL}/history/${sessionId}`, { headers: authHeaders });
           const data = await response.json();
@@ -234,65 +217,43 @@ function App() {
     }
   }, [input]);
 
-  // 🎙️ NEW: Audio Playback Engine
-// 🎙️ NEW & IMPROVED: Browser-Native Audio Engine
   const playAudio = (text) => {
       if (!voiceMode) return;
-      
-      // Stop any current speech
       window.speechSynthesis.cancel();
-
-      // Strip out the "Scanning web" text for cleaner speech
       const cleanText = text.replace(/\*\(🌐 Scanning the live web...\)\*\n\n/g, "");
-
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      
-      // Select a professional sounding voice (optional)
       const voices = window.speechSynthesis.getVoices();
-      // Try to find a nice Google or Microsoft natural voice
       const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Natural"));
       if (preferredVoice) utterance.voice = preferredVoice;
-
-      utterance.rate = 1.0; // Normal speed
+      utterance.rate = 1.0;
       utterance.pitch = 1.0;
-
       utterance.onstart = () => setIsSpeaking(true);
       utterance.onend = () => setIsSpeaking(false);
       utterance.onerror = () => setIsSpeaking(false);
-
       window.speechSynthesis.speak(utterance);
-  };
   };
 
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || isTyping) return;
-    
-    if (audioRef.current) audioRef.current.pause(); // Cut off current speech if user interrupts
-
+    window.speechSynthesis.cancel();
     const currentInput = input;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-
     const newHistory = [...chatLog, { role: "user", content: currentInput }];
     setChatLog([...newHistory, { role: "assistant", content: "" }]);
     setIsTyping(true);
-
     let fullAiText = "";
-
     try {
       const response = await fetch(`${BACKEND_URL}/chat`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ message: currentInput, session_id: currentSessionId }) });
       if(response.status === 401) { handleLogout(); return; }
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value);
         const lines = chunk.split("\n");
-
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
@@ -308,12 +269,9 @@ function App() {
         }
       }
       fetchSessions(); 
-      
-      // 🎙️ Play audio once text is fully generated
       if (voiceMode && fullAiText.trim()) {
           playAudio(fullAiText);
       }
-      
     } catch (err) {
       setChatLog(prev => [...prev, { role: "assistant", content: "⚠️ **System Error:** Neural link severed." }]);
     } finally { setIsTyping(false); }
@@ -333,10 +291,10 @@ function App() {
                       <p style={{ color: '#888', fontSize: '0.95rem', marginTop: '10px' }}>{authMode === "login" ? "Authenticate your neural link." : "Initialize a new workspace."}</p>
                   </div>
                   <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <input type="text" placeholder="Username" value={authInputUser} onChange={e => setAuthInputUser(e.target.value)} required style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(0,0,0,0.4)', color: '#fff', outline: 'none', fontSize: '1rem', transition: 'border-color 0.2s' }} onFocus={(e) => e.target.style.borderColor = '#10a37f'} onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}/>
-                      <input type="password" placeholder="Password" value={authInputPass} onChange={e => setAuthInputPass(e.target.value)} required style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(0,0,0,0.4)', color: '#fff', outline: 'none', fontSize: '1rem', transition: 'border-color 0.2s' }} onFocus={(e) => e.target.style.borderColor = '#10a37f'} onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}/>
+                      <input type="text" placeholder="Username" value={authInputUser} onChange={e => setAuthInputUser(e.target.value)} required style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(0,0,0,0.4)', color: '#fff', outline: 'none', fontSize: '1rem', transition: 'border-color 0.2s' }} />
+                      <input type="password" placeholder="Password" value={authInputPass} onChange={e => setAuthInputPass(e.target.value)} required style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'rgba(0,0,0,0.4)', color: '#fff', outline: 'none', fontSize: '1rem', transition: 'border-color 0.2s' }} />
                       {authError && <p style={{ color: authError.includes("success") ? '#10a37f' : '#eb5757', fontSize: '0.85rem', margin: '0', textAlign: 'center' }}>{authError}</p>}
-                      <button type="submit" disabled={isAuthenticating} style={{ padding: '16px', borderRadius: '12px', border: 'none', backgroundColor: '#10a37f', color: '#fff', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(16, 163, 127, 0.4)', transition: 'transform 0.1s' }} onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.98)'} onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}>
+                      <button type="submit" disabled={isAuthenticating} style={{ padding: '16px', borderRadius: '12px', border: 'none', backgroundColor: '#10a37f', color: '#fff', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(16, 163, 127, 0.4)', transition: 'transform 0.1s' }}>
                           {isAuthenticating ? <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> : (authMode === "login" ? "INITIALIZE" : "CREATE LINK")}
                       </button>
                   </form>
@@ -353,68 +311,59 @@ function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0A0A0A', color: '#E5E5E5', fontFamily: 'Inter, sans-serif' }}>
-      
       <aside style={{ width: '260px', backgroundColor: '#050505', borderRight: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', padding: '20px 15px' }}>
-        <button onClick={startNewChat} style={{ border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', color: 'white', backgroundColor: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer', marginBottom: '30px', transition: 'all 0.2s ease', fontWeight: '500' }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(16, 163, 127, 0.1)'; e.currentTarget.style.borderColor = 'rgba(16, 163, 127, 0.3)'; e.currentTarget.style.color = '#10a37f'; }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.02)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'white'; }}>
+        <button onClick={startNewChat} style={{ border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '14px', color: 'white', backgroundColor: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer', marginBottom: '30px', transition: 'all 0.2s ease', fontWeight: '500' }}>
           <Plus size={18} /> New Workspace
         </button>
-
         <div style={{ flex: 1, fontSize: '0.85rem', color: '#666', overflowY: 'auto' }}>
           <p style={{ marginBottom: '16px', fontWeight: '600', color: '#555', letterSpacing: '1px', fontSize: '0.75rem', paddingLeft: '10px' }}>SECURE ARCHIVES</p>
           {sessions.length === 0 ? (
               <p style={{ textAlign: 'center', opacity: 0.5, marginTop: '20px' }}>No previous sessions.</p>
           ) : (
               sessions.map((session, idx) => (
-                  <div key={idx} onClick={() => loadSession(session.session_id)} style={{ padding: '12px', borderRadius: '8px', backgroundColor: currentSessionId === session.session_id ? 'rgba(255,255,255,0.05)' : 'transparent', borderLeft: currentSessionId === session.session_id ? '3px solid #10a37f' : '3px solid transparent', marginBottom: '4px', color: currentSessionId === session.session_id ? '#fff' : '#888', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', transition: 'background-color 0.2s' }} onMouseEnter={(e) => { if(currentSessionId !== session.session_id) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.02)'; }} onMouseLeave={(e) => { if(currentSessionId !== session.session_id) e.currentTarget.style.backgroundColor = 'transparent'; }}>
+                  <div key={idx} onClick={() => loadSession(session.session_id)} style={{ padding: '12px', borderRadius: '8px', backgroundColor: currentSessionId === session.session_id ? 'rgba(255,255,255,0.05)' : 'transparent', borderLeft: currentSessionId === session.session_id ? '3px solid #10a37f' : '3px solid transparent', marginBottom: '4px', color: currentSessionId === session.session_id ? '#fff' : '#888', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', transition: 'background-color 0.2s' }}>
                      <MessageSquare size={16} color={currentSessionId === session.session_id ? "#10a37f" : "#555"} style={{ flexShrink: 0 }} /> 
                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.title}</span>
                   </div>
               ))
           )}
         </div>
-        
         <div style={{ marginTop: 'auto', paddingTop: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.03)', width: '100%' }}>
                 <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: 'rgba(16, 163, 127, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10a37f' }}>
                     <User size={18} />
                 </div>
                 <div style={{ fontSize: '0.9rem', fontWeight: '500', color: '#ddd', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{username}</div>
-                <button onClick={handleLogout} title="Log Out" style={{ backgroundColor: 'transparent', border: 'none', color: '#666', cursor: 'pointer', padding: '4px' }} onMouseEnter={(e) => e.currentTarget.style.color = '#eb5757'} onMouseLeave={(e) => e.currentTarget.style.color = '#666'}>
+                <button onClick={handleLogout} title="Log Out" style={{ backgroundColor: 'transparent', border: 'none', color: '#666', cursor: 'pointer', padding: '4px' }}>
                     <LogOut size={18} />
                 </button>
             </div>
         </div>
       </aside>
-
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         <header style={{ padding: '20px 30px', backdropFilter: 'blur(20px)', backgroundColor: 'rgba(10, 10, 10, 0.7)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '8px', height: '8px', backgroundColor: isSpeaking ? '#6E2CF2' : '#10a37f', borderRadius: '50%', boxShadow: `0 0 12px ${isSpeaking ? '#6E2CF2' : '#10a37f'}`, animation: isSpeaking ? 'pulse 1s infinite' : 'pulse 2s infinite' }}></div>
             <span style={{ fontWeight: '600', letterSpacing: '1px', fontSize: '0.95rem' }}>AGENT OS {isSpeaking && <span style={{color: '#6E2CF2', fontSize: '0.75rem', marginLeft: '8px'}}>(SPEAKING...)</span>}</span>
           </div>
-          
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {/* 🎙️ Voice Mode Toggle */}
             <button 
-                onClick={() => { setVoiceMode(!voiceMode); if (audioRef.current) audioRef.current.pause(); setIsSpeaking(false); }}
+                onClick={() => { setVoiceMode(!voiceMode); window.speechSynthesis.cancel(); setIsSpeaking(false); }}
                 style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: voiceMode ? '#10a37f' : '#666', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', transition: 'color 0.2s' }}
-                title={voiceMode ? "Voice Mode ON" : "Voice Mode OFF"}
             >
                 {voiceMode ? <Volume2 size={18} /> : <VolumeX size={18} />}
                 {voiceMode ? "VOICE ON" : "VOICE OFF"}
             </button>
-
             <div style={{ fontSize: '0.8rem', color: '#555', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(255,255,255,0.03)', padding: '6px 12px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
               {isTyping && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
               Llama-3.3-70B-Speculative
             </div>
           </div>
         </header>
-
         <main style={{ flex: 1, overflowY: 'auto', padding: '40px 0', scrollBehavior: 'smooth' }}>
           <div style={{ maxWidth: '850px', margin: '0 auto', padding: '0 20px' }}>
             {chatLog.length === 0 && (
-                <div style={{ textAlign: 'center', marginTop: '20vh', animation: 'fadeIn 1s ease-out' }}>
+                <div style={{ textAlign: 'center', marginTop: '20vh' }}>
                     <div style={{ width: '80px', height: '80px', borderRadius: '20px', backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
                         <Cpu size={40} color="#333" />
                     </div>
@@ -422,7 +371,6 @@ function App() {
                     <p style={{ fontSize: '1rem', color: '#666' }}>Secure end-to-end encryption active.</p>
                 </div>
             )}
-            
             {chatLog.map((msg, i) => (
               <div key={i} style={{ display: 'flex', gap: '20px', padding: '24px', borderRadius: '16px', marginBottom: '24px', backgroundColor: msg.role === 'user' ? 'transparent' : 'rgba(255,255,255,0.02)', border: msg.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.05)' }}>
                 <div style={{ width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: msg.role === 'user' ? 'rgba(16, 163, 127, 0.1)' : 'rgba(110, 44, 242, 0.1)', color: msg.role === 'user' ? '#10a37f' : '#8a4bfa', flexShrink: 0, border: `1px solid ${msg.role === 'user' ? 'rgba(16, 163, 127, 0.2)' : 'rgba(110, 44, 242, 0.2)'}` }}>
@@ -436,51 +384,42 @@ function App() {
             <div ref={chatEndRef} />
           </div>
         </main>
-
         <footer style={{ padding: '20px 20px 40px', background: 'linear-gradient(to top, #0A0A0A 70%, transparent)' }}>
           <div style={{ maxWidth: '850px', margin: '0 auto', position: 'relative' }}>
-            
             {activeFiles.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px', animation: 'fadeIn 0.3s' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
                     {activeFiles.map((filename, idx) => (
                         <div key={idx} style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '6px 12px', fontSize: '0.8rem', color: '#ccc' }}>
                             <Paperclip size={14} style={{ marginRight: '6px', color: '#10a37f' }} />
                             {filename}
                         </div>
                     ))}
-                    <button onClick={handleClearFiles} style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(235, 87, 87, 0.1)', border: '1px solid rgba(235, 87, 87, 0.2)', borderRadius: '8px', padding: '6px 12px', fontSize: '0.8rem', color: '#eb5757', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(235, 87, 87, 0.2)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(235, 87, 87, 0.1)'}>
+                    <button onClick={handleClearFiles} style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(235, 87, 87, 0.1)', border: '1px solid rgba(235, 87, 87, 0.2)', borderRadius: '8px', padding: '6px 12px', fontSize: '0.8rem', color: '#eb5757', cursor: 'pointer' }}>
                         <X size={14} style={{ marginRight: '4px' }} /> Clear
                     </button>
                 </div>
             )}
-
-            <form style={{ display: 'flex', alignItems: 'flex-end', backgroundColor: 'rgba(255,255,255,0.03)', backdropFilter: 'blur(10px)', borderRadius: '20px', padding: '12px 16px', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
+            <form style={{ display: 'flex', alignItems: 'flex-end', backgroundColor: 'rgba(255,255,255,0.03)', backdropFilter: 'blur(10px)', borderRadius: '20px', padding: '12px 16px', border: '1px solid rgba(255,255,255,0.1)' }}>
               <FileUploadButton onUploadSuccess={fetchFiles} currentSessionId={currentSessionId} token={token} />
-              
               <textarea 
                 ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
                 placeholder="Message Agent OS..." rows={1}
                 style={{ flex: 1, padding: '12px', backgroundColor: 'transparent', border: 'none', color: '#fff', outline: 'none', fontSize: '1.05rem', resize: 'none', fontFamily: 'inherit', maxHeight: '200px', lineHeight: '1.5' }}
               />
-              <button type="button" onClick={handleSend} disabled={isTyping || !input.trim()} style={{ backgroundColor: (isTyping || !input.trim()) ? 'rgba(255,255,255,0.1)' : '#10a37f', color: (isTyping || !input.trim()) ? '#555' : 'white', border: 'none', borderRadius: '14px', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: (isTyping || !input.trim()) ? 'default' : 'pointer', transition: 'all 0.2s', marginBottom: '4px', flexShrink: 0, boxShadow: (isTyping || !input.trim()) ? 'none' : '0 4px 14px rgba(16, 163, 127, 0.4)' }}>
-                <Send size={20} style={{ transform: 'translateX(-1px)' }}/>
+              <button type="button" onClick={handleSend} disabled={isTyping || !input.trim()} style={{ backgroundColor: (isTyping || !input.trim()) ? 'rgba(255,255,255,0.1)' : '#10a37f', color: (isTyping || !input.trim()) ? '#555' : 'white', border: 'none', borderRadius: '14px', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: (isTyping || !input.trim()) ? 'default' : 'pointer', transition: 'all 0.2s', marginBottom: '4px', flexShrink: 0 }}>
+                <Send size={20} />
               </button>
             </form>
-            <p style={{ textAlign: 'center', fontSize: '0.75rem', color: '#555', marginTop: '16px' }}>
-                Shift+Enter for new line. Agent OS can make mistakes. Check important info.
-            </p>
+            <p style={{ textAlign: 'center', fontSize: '0.75rem', color: '#555', marginTop: '16px' }}>Shift+Enter for new line. Agent OS can make mistakes.</p>
           </div>
         </footer>
       </div>
-
       <style>{`
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
       `}</style>
     </div>
   );
