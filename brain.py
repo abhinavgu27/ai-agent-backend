@@ -4,6 +4,7 @@ import requests
 import io
 import sys
 import json
+import subprocess
 from dotenv import load_dotenv
 from groq import Groq
 from tavily import TavilyClient
@@ -18,14 +19,20 @@ ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 VOICE_ID = os.environ.get("VOICE_ID", "N2lVS1w4EtoT3dr4eOWO")
 
 # ==========================================
-# 🔧 PHASE 3: THE TOOLBOX
+# 🔧 PHASE 3: THE TOOLBOX (Python & Terminal)
 # ==========================================
 def execute_python_code(code: str):
     output_buffer = io.StringIO()
     old_stdout = sys.stdout
     try:
         sys.stdout = output_buffer
-        exec_scope = {"math": __import__("math"), "datetime": __import__("datetime")} 
+        # Pre-import common modules for the AI
+        exec_scope = {
+            "math": __import__("math"), 
+            "datetime": __import__("datetime"),
+            "os": __import__("os"),
+            "sys": __import__("sys")
+        } 
         exec(code, exec_scope)
         sys.stdout = old_stdout
         result = output_buffer.getvalue()
@@ -33,6 +40,18 @@ def execute_python_code(code: str):
     except Exception as e:
         sys.stdout = old_stdout
         return f"Execution Error: {str(e)}"
+
+def execute_terminal_command(command: str):
+    """Executes a system shell command and returns the output."""
+    try:
+        # Timeout prevents the AI from hanging the server with long tasks
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=15)
+        output = result.stdout if result.stdout else result.stderr
+        return output if output else "Command executed successfully (no output)."
+    except subprocess.TimeoutExpired:
+        return "Error: Command timed out after 15 seconds."
+    except Exception as e:
+        return f"Terminal Error: {str(e)}"
 
 AGENT_TOOLS = [
     {
@@ -46,6 +65,20 @@ AGENT_TOOLS = [
                     "code": {"type": "string", "description": "The Python code to execute."}
                 },
                 "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_terminal_command",
+            "description": "Run shell/terminal commands to check system status, time, or environment info (e.g., 'df -h', 'uptime').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The shell command to run."}
+                },
+                "required": ["command"],
             },
         },
     }
@@ -71,9 +104,9 @@ def analyze_image(base64_image, user_prompt="Analyze this image."):
 def ask(user_message, history=[]):
     current_date = datetime.now().strftime("%B %d, %Y")
     system_prompt = (
-        f"You are AGENT OS. Current Date: {current_date}. "
-        "Use 'execute_python_code' for any complex math or logic. "
-        "Explain tool results clearly."
+        f"You are AGENT OS, a high-performance system. Date: {current_date}. "
+        "Use 'execute_python_code' for logic/math and 'execute_terminal_command' for system info. "
+        "Explain results clearly."
     )
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -82,7 +115,7 @@ def ask(user_message, history=[]):
     messages.append({"role": "user", "content": user_message})
 
     try:
-        # Step 1: Decision Call
+        # Step 1: Tool Decision Call
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
@@ -96,18 +129,24 @@ def ask(user_message, history=[]):
         if tool_calls:
             messages.append(response_message)
             for tool_call in tool_calls:
+                function_name = tool_call.function.name
                 args = json.loads(tool_call.function.arguments)
-                yield f"*(⚙️ Executing Python Logic...)*\n\n"
                 
-                result = execute_python_code(args.get("code"))
+                if function_name == "execute_python_code":
+                    yield f"*(⚙️ Executing Python Logic...)*\n\n"
+                    result = execute_python_code(args.get("code"))
+                elif function_name == "execute_terminal_command":
+                    yield f"*(💻 Accessing System Terminal...)*\n\n"
+                    result = execute_terminal_command(args.get("command"))
+                
                 messages.append({
                     "tool_call_id": tool_call.id,
                     "role": "tool",
-                    "name": tool_call.function.name,
+                    "name": function_name,
                     "content": result,
                 })
 
-            # Step 2: Final Response Call
+            # Step 2: Synthesis Call
             second_res = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=messages,
