@@ -12,7 +12,7 @@ import os
 import io
 import PyPDF2
 import base64
-import urllib.parse # <-- NEW: Needed to format the image prompt URL securely
+import urllib.parse 
 
 # Import vision analysis along with existing functions
 from brain import ask, generate_audio, analyze_image
@@ -96,7 +96,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": access_token, "token_type": "bearer"}
 
 # ==========================================
-# 📂 FILE & SESSION ENDPOINTS (UPGRADED FOR VISION)
+# 📂 FILE & SESSION ENDPOINTS
 # ==========================================
 class ChatPayload(BaseModel):
     message: str
@@ -109,20 +109,13 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...),
         file_bytes = await file.read()
         filename = file.filename.lower()
 
-        # --- 👁️ NEW: VISION PROCESSING ---
         if filename.endswith((".png", ".jpg", ".jpeg")):
-            # Convert to Base64
             encoded_image = base64.b64encode(file_bytes).decode('utf-8')
-            
-            # Analyze image using Llama-3.2-Vision
             description = analyze_image(encoded_image)
-            
-            # Wrap description as context
             content = f"[VISUAL DATA FROM IMAGE {file.filename}]: {description}"
             await save_file_context(current_user, session_id, file.filename, content)
             return {"status": "Success", "message": f"Image {file.filename} analyzed and stored."}
 
-        # --- EXISTING: PDF/TEXT PROCESSING ---
         elif filename.endswith(".pdf"):
             pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
             for page in pdf_reader.pages:
@@ -163,7 +156,7 @@ async def get_session_history(session_id: str, current_user: str = Depends(get_c
     return {"history": history}
 
 # ==========================================
-# 💬 MAIN CHAT ENDPOINT (UPGRADED FOR SPATIAL GEN-UI)
+# 💬 MAIN CHAT ENDPOINT (FIXED GEN-UI INTERCEPTOR)
 # ==========================================
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_current_user)):
@@ -177,28 +170,24 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
     async def event_stream():
         prompt_lower = payload.message.lower()
         
-        # --- 🔍 GEN-UI INTERCEPTOR: IMAGE GENERATION ---
-        # If the user asks for an image, hijack the stream and send a spatial widget payload
-        if any(trigger in prompt_lower for trigger in ["generate an image", "create an image", "draw", "generate a picture"]):
-            
-            # Format the prompt for the Pollinations API
+        # --- 🔍 GEN-UI INTERCEPTOR: SMARTER IMAGE DETECTION ---
+        # Checks if "image" or "picture" is in the prompt, AND if it asks to create one
+        is_image_request = ("image" in prompt_lower or "picture" in prompt_lower) and \
+                           any(word in prompt_lower for word in ["generate", "create", "make", "draw"])
+        
+        if is_image_request:
             safe_prompt = urllib.parse.quote(payload.message)
             image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
             
-            # Create the exact JSON object the React frontend expects
             genui_payload = {
                 "type": "genui_event",
                 "widget_type": "image_generated",
                 "image_url": image_url
             }
             
-            # Simulate a brief loading period so the UI shows the "Generating..." pulsing brain
             await asyncio.sleep(1.5) 
-            
-            # Send the spatial widget payload and exit the stream early
             yield f"data: {json.dumps(genui_payload)}\n\n"
             
-            # Save the interaction to DB history
             await save_message(current_user, payload.session_id, "user", payload.message)
             await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Image - {payload.message}]")
             return
