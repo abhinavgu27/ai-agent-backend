@@ -12,7 +12,7 @@ import os
 import io
 import PyPDF2
 
-from brain import ask
+from brain import ask, generate_audio
 from database import (
     create_user_in_db, get_user_from_db,
     save_message, get_history, get_all_sessions,
@@ -36,16 +36,13 @@ SECRET_KEY = os.environ.get("JWT_SECRET", "agent_os_super_secret_key_123")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 Days
 
-# The new pwdlib instance
 password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 def verify_password(plain_password, hashed_password):
-    # FIXED: using password_hash instead of pwd_context
     return password_hash.verify(plain_password, hashed_password)
 
 def get_password_hash(password):
-    # FIXED: using password_hash instead of pwd_context
     return password_hash.hash(password)
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
@@ -168,6 +165,24 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
         await save_message(current_user, payload.session_id, "assistant", full_text)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+# ==========================================
+# 🎙️ VOICE ENDPOINT
+# ==========================================
+class AudioPayload(BaseModel):
+    text: str
+
+@app.post("/speak")
+async def speak_endpoint(payload: AudioPayload, current_user: str = Depends(get_current_user)):
+    """Receives text, generates audio via ElevenLabs, and streams it back."""
+    try:
+        # Strip out the web search text so the AI doesn't read it out loud
+        clean_text = payload.text.replace("*(🌐 Scanning the live web...)*\n\n", "")
+        
+        audio_stream = generate_audio(clean_text)
+        return StreamingResponse(audio_stream, media_type="audio/mpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
