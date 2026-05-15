@@ -14,7 +14,6 @@ import PyPDF2
 import base64
 import urllib.parse 
 
-# Import vision analysis along with existing functions
 from brain import ask, generate_audio, analyze_image
 from database import (
     create_user_in_db, get_user_from_db,
@@ -32,12 +31,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ==========================================
-# 🔒 AUTHENTICATION SETUP
-# ==========================================
 SECRET_KEY = os.environ.get("JWT_SECRET", "agent_os_super_secret_key_123")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 Days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 
 
 password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -73,9 +69,6 @@ class UserRegister(BaseModel):
     username: str
     password: str
 
-# ==========================================
-# 🚪 LOGIN & REGISTER ENDPOINTS
-# ==========================================
 @app.post("/register")
 async def register(user: UserRegister):
     existing_user = await get_user_from_db(user.username)
@@ -95,9 +88,6 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     access_token = create_access_token(data={"sub": user["username"]}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     return {"access_token": access_token, "token_type": "bearer"}
 
-# ==========================================
-# 📂 FILE & SESSION ENDPOINTS
-# ==========================================
 class ChatPayload(BaseModel):
     message: str
     session_id: str = "default"
@@ -156,7 +146,7 @@ async def get_session_history(session_id: str, current_user: str = Depends(get_c
     return {"history": history}
 
 # ==========================================
-# 💬 MAIN CHAT ENDPOINT (FIXED GEN-UI INTERCEPTOR)
+# 💬 MAIN CHAT ENDPOINT (IMAGE + TERMINAL GEN-UI)
 # ==========================================
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_current_user)):
@@ -170,8 +160,7 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
     async def event_stream():
         prompt_lower = payload.message.lower()
         
-        # --- 🔍 GEN-UI INTERCEPTOR: SMARTER IMAGE DETECTION ---
-        # Checks if "image" or "picture" is in the prompt, AND if it asks to create one
+        # --- 🔍 GEN-UI INTERCEPTOR 1: IMAGE GENERATION ---
         is_image_request = ("image" in prompt_lower or "picture" in prompt_lower) and \
                            any(word in prompt_lower for word in ["generate", "create", "make", "draw"])
         
@@ -190,6 +179,25 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             
             await save_message(current_user, payload.session_id, "user", payload.message)
             await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Image - {payload.message}]")
+            return
+
+        # --- 💻 GEN-UI INTERCEPTOR 2: TERMINAL CONSOLE ---
+        is_system_request = any(trigger in prompt_lower for trigger in ["run command", "system status", "ping", "execute server"])
+        
+        if is_system_request:
+            terminal_output = f"agent-os@root:~$ {payload.message}\n> Initializing secure shell...\n> Authenticating user token...\n> [OK] Access Granted.\n> Executing payload tensors...\n> System status: NOMINAL.\n> Operation completed in 1.04s"
+            
+            terminal_payload = {
+                "type": "genui_event",
+                "widget_type": "terminal_output",
+                "output": terminal_output
+            }
+            
+            await asyncio.sleep(1) 
+            yield f"data: {json.dumps(terminal_payload)}\n\n"
+            
+            await save_message(current_user, payload.session_id, "user", payload.message)
+            await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Terminal Execution]")
             return
 
         # --- 💬 STANDARD TEXT STREAMING ---

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ReactFlow, Background, Controls, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -21,10 +21,30 @@ const ImageWidgetNode = ({ data }) => (
     ) : (
       <img src={data.image_url} alt="Generated" className="w-full aspect-square rounded-xl object-cover" />
     )}
+    <Handle type="source" position={Position.Bottom} className="opacity-0" />
   </div>
 );
 
-// 2. The Text Nodes (User & Agent)
+// 2. NEW: The Hacker Terminal Widget
+const TerminalWidgetNode = ({ data }) => (
+  <div className="bg-black/90 backdrop-blur-md p-4 rounded-xl border border-zinc-800 shadow-2xl min-w-[400px] max-w-[500px] font-mono">
+    <Handle type="target" position={Position.Top} className="opacity-0" />
+    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-zinc-800 text-zinc-500">
+      <div className="flex gap-1.5">
+        <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50"></div>
+        <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50"></div>
+        <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/50"></div>
+      </div>
+      <Terminal className="w-4 h-4 ml-2 text-zinc-600" />
+      <span className="uppercase tracking-widest text-[10px] text-zinc-500">System.Terminal // Root</span>
+    </div>
+    <div className="text-emerald-400 text-xs whitespace-pre-wrap leading-relaxed">{data.output}</div>
+    <div className="mt-2 text-emerald-400 animate-pulse">_</div>
+    <Handle type="source" position={Position.Bottom} className="opacity-0" />
+  </div>
+);
+
+// 3. The Text Nodes (User & Agent)
 const TextNode = ({ data, isUser }) => (
   <div className={`p-4 rounded-2xl border shadow-xl ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[250px] max-w-[400px]`}>
     {isUser ? <Handle type="source" position={Position.Bottom} className="opacity-0" /> : <Handle type="target" position={Position.Top} className="opacity-0" />}
@@ -35,21 +55,31 @@ const TextNode = ({ data, isUser }) => (
     <div className="text-sm leading-relaxed">
        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.label}</ReactMarkdown>
     </div>
+    {/* Give assistant nodes a source handle so conversations can branch downwards */}
+    {!isUser && <Handle type="source" position={Position.Bottom} className="opacity-0" />}
   </div>
 );
 
-// 3. Registering the Node Types
+// Registering the Node Types
 const nodeTypes = {
   user_input: (props) => <TextNode {...props} isUser={true} />,
   assistant_response: (props) => <TextNode {...props} isUser={false} />,
   assistant_genui_image: ImageWidgetNode,
+  assistant_genui_terminal: TerminalWidgetNode, // <-- NEW TERMINAL
 };
 
-// 4. The Main Canvas Component
-export default function SpatialWorkspace({ nodes, onNodesChange }) {
+// The Main Canvas Component (Now accepts edges!)
+export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesChange }) {
   return (
     <div className="w-full h-full bg-[#09090b]">
-      <ReactFlow nodes={nodes} onNodesChange={onNodesChange} nodeTypes={nodeTypes} fitView>
+      <ReactFlow 
+        nodes={nodes} 
+        edges={edges}
+        onNodesChange={onNodesChange} 
+        onEdgesChange={onEdgesChange}
+        nodeTypes={nodeTypes} 
+        fitView
+      >
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
       </ReactFlow>

@@ -3,8 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useNodesState } from '@xyflow/react'; // NEW: xyflow hook
-import SpatialWorkspace from './SpatialWorkspace'; // NEW: The spatial canvas component
+import { useNodesState, useEdgesState } from '@xyflow/react'; // <-- EDGES ADDED
+import SpatialWorkspace from './SpatialWorkspace';
 import { 
   Send, Bot, User, Loader2, Paperclip, X, Plus, 
   MessageSquare, LogOut, Lock, Check, Globe, 
@@ -16,7 +16,6 @@ const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
 // ==========================================
 // 🎨 PRO MESSAGE RENDERER
 // ==========================================
-// (This component remains largely the same, but it's now used inside the TextNodes within SpatialWorkspace)
 export const RenderMessage = ({ content }) => {
   const [copiedCode, setCopiedCode] = useState(null);
 
@@ -152,9 +151,9 @@ export default function App() {
   
   const [input, setInput] = useState('');
   
-  // NEW: Replaced chatLog array with xyflow nodes state
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const lastYPosition = useRef(100); // Tracks vertical plotting for nodes
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]); // <-- EDGES STATE
+  const lastYPosition = useRef(100);
   
   const [isTyping, setIsTyping] = useState(false);
   const [activeFiles, setActiveFiles] = useState([]); 
@@ -199,11 +198,11 @@ export default function App() {
       localStorage.removeItem("agent_os_token");
       localStorage.removeItem("agent_os_user");
       setNodes([]);
+      setEdges([]); // Clear edges
       setSessions([]);
       window.speechSynthesis.cancel();
   };
 
-  // --- Effects & Fetching ---
   useEffect(() => { if (token) { fetchSessions(); fetchFiles(); } }, [token, currentSessionId]);
 
   const authHeaders = { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
@@ -236,18 +235,17 @@ export default function App() {
   const startNewChat = () => {
       setCurrentSessionId(Date.now().toString());
       setNodes([]);
-      lastYPosition.current = 100; // Reset plotting position
+      setEdges([]);
+      lastYPosition.current = 100;
       window.speechSynthesis.cancel();
   };
 
-  // NOTE: loadSession needs a backend update to return layout coordinates, 
-  // but for now we will just reset the canvas.
   const loadSession = async (sessionId) => {
       setNodes([]); 
+      setEdges([]);
       lastYPosition.current = 100;
       setCurrentSessionId(sessionId);
       window.speechSynthesis.cancel();
-      // Temporarily disabled history fetching until backend sends spatial coordinates
       setNodes([{ id: 'init', type: 'assistant_response', position: { x: 400, y: 100 }, data: { label: '⚡ **Session Linked:** Spatial Memory ready.' } }]);
   };
 
@@ -258,7 +256,6 @@ export default function App() {
     }
   }, [input]);
 
-  // --- Voice & Chat Logic ---
   const playAudio = (text) => {
       if (!voiceMode) return;
       window.speechSynthesis.cancel();
@@ -273,7 +270,6 @@ export default function App() {
       window.speechSynthesis.speak(utterance);
   };
 
-  // UPGRADED: handleSend now plots nodes on the canvas
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || isTyping) return;
@@ -287,19 +283,33 @@ export default function App() {
     const newNodeId = Date.now().toString();
     const userY = lastYPosition.current;
     const aiY = userY + 150;
-    lastYPosition.current = aiY + 200; // Update for next interaction
+    lastYPosition.current = aiY + 200;
+
+    const userNodeId = `user-${newNodeId}`;
+    const aiNodeId = `ai-${newNodeId}`;
 
     // 1. Plot User Node
     setNodes((nds) => [
       ...nds,
-      { id: `user-${newNodeId}`, type: 'user_input', position: { x: 400, y: userY }, data: { label: currentInput } }
+      { id: userNodeId, type: 'user_input', position: { x: 400, y: userY }, data: { label: currentInput } }
     ]);
 
     // 2. Plot initial empty Assistant Node
-    const aiNodeId = `ai-${newNodeId}`;
     setNodes((nds) => [
       ...nds,
       { id: aiNodeId, type: 'assistant_response', position: { x: 400, y: aiY }, data: { label: "" } }
+    ]);
+
+    // 3. NEW: Draw glowing line!
+    setEdges((eds) => [
+        ...eds,
+        { 
+          id: `edge-${newNodeId}`, 
+          source: userNodeId, 
+          target: aiNodeId, 
+          animated: true, 
+          style: { stroke: '#818cf8', strokeWidth: 2 } 
+        }
     ]);
 
     let fullAiText = "";
@@ -323,8 +333,9 @@ export default function App() {
             try {
                 const data = JSON.parse(line.replace("data: ", ""));
                 
-                // --- NEW: Handle Generative UI Events from backend ---
+                // Gen-UI Interceptor Logic
                 if (data.type === 'genui_event') {
+                   // Image GenUI
                    if (data.widget_type === 'image_generated') {
                        setNodes((nds) => nds.map((node) => {
                            if(node.id === aiNodeId) {
@@ -336,14 +347,25 @@ export default function App() {
                            }
                            return node;
                        }));
+                   } 
+                   // Terminal GenUI
+                   else if (data.widget_type === 'terminal_output') {
+                       setNodes((nds) => nds.map((node) => {
+                           if(node.id === aiNodeId) {
+                               return { 
+                                   ...node, 
+                                   type: 'assistant_genui_terminal', 
+                                   data: { output: data.output }
+                                };
+                           }
+                           return node;
+                       }));
                    }
                 } else if (data.token) {
-                   // --- Standard Text Streaming to specific node ---
                    fullAiText += data.token;
                    setNodes((nds) => nds.map((node) => {
                        if (node.id === aiNodeId) {
-                           // Ensure we don't overwrite an image node if it was transformed
-                           if (node.type !== 'assistant_genui_image') {
+                           if (node.type !== 'assistant_genui_image' && node.type !== 'assistant_genui_terminal') {
                               return { ...node, data: { ...node.data, label: fullAiText } };
                            }
                        }
@@ -368,14 +390,10 @@ export default function App() {
 
   const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
-  // ==========================================
-  // 🔐 AUTH UI (PREMIUM)
-  // ==========================================
   if (!token) {
       return (
           <div className="flex items-center justify-center min-h-screen bg-[#09090b] text-zinc-100 font-sans relative overflow-hidden">
               <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-indigo-600/20 blur-[120px] rounded-full pointer-events-none" />
-              
               <div className="w-full max-w-md p-8 bg-zinc-900/50 backdrop-blur-2xl rounded-3xl border border-white/10 shadow-2xl relative z-10">
                   <div className="text-center mb-8">
                       <div className="w-14 h-14 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-500/25 mb-4">
@@ -384,21 +402,13 @@ export default function App() {
                       <h2 className="text-2xl font-bold tracking-tight">AGENT OS <span className="text-indigo-400 text-sm align-top">PRO</span></h2>
                       {authError && <p className="text-red-400 text-sm mt-2">{authError}</p>}
                   </div>
-                  
                   <form onSubmit={handleAuth} className="flex flex-col gap-4">
-                      <input 
-                        type="text" placeholder="Workspace Username" value={authInputUser} onChange={e => setAuthInputUser(e.target.value)} required 
-                        className="w-full px-4 py-3.5 rounded-xl bg-zinc-950/50 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-600" 
-                      />
-                      <input 
-                        type="password" placeholder="Passcode" value={authInputPass} onChange={e => setAuthInputPass(e.target.value)} required 
-                        className="w-full px-4 py-3.5 rounded-xl bg-zinc-950/50 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-600" 
-                      />
+                      <input type="text" placeholder="Workspace Username" value={authInputUser} onChange={e => setAuthInputUser(e.target.value)} required className="w-full px-4 py-3.5 rounded-xl bg-zinc-950/50 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-600" />
+                      <input type="password" placeholder="Passcode" value={authInputPass} onChange={e => setAuthInputPass(e.target.value)} required className="w-full px-4 py-3.5 rounded-xl bg-zinc-950/50 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-600" />
                       <button type="submit" disabled={isAuthenticating} className="w-full py-3.5 mt-2 rounded-xl bg-white text-zinc-950 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50">
                         {isAuthenticating ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (authMode === "login" ? "Initialize Link" : "Create Workspace")}
                       </button>
                   </form>
-                  
                   <div className="text-center mt-6 text-sm text-zinc-500">
                       <span onClick={() => setAuthMode(authMode === "login" ? "register" : "login")} className="hover:text-indigo-400 cursor-pointer transition-colors">
                         {authMode === "login" ? "Need access? Register here." : "Have clearance? Log in."}
@@ -409,16 +419,9 @@ export default function App() {
       );
   }
 
-  // ==========================================
-  // 💻 MAIN APP UI (SPATIAL CANVAS UPGRADE)
-  // ==========================================
   return (
     <div className="flex h-screen w-full bg-[#09090b] text-zinc-100 font-sans overflow-hidden">
-      
-      {/* --- SIDEBAR --- */}
-      <aside 
-        className={`${isSidebarOpen ? 'w-72' : 'w-0'} transition-all duration-300 ease-in-out border-r border-white/5 bg-[#09090b]/80 flex flex-col shrink-0 z-20`}
-      >
+      <aside className={`${isSidebarOpen ? 'w-72' : 'w-0'} transition-all duration-300 ease-in-out border-r border-white/5 bg-[#09090b]/80 flex flex-col shrink-0 z-20`}>
         <div className="p-4 border-b border-white/5 whitespace-nowrap">
           <button onClick={startNewChat} className="w-full flex items-center justify-between px-3 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-sm font-medium transition-colors">
             <div className="flex items-center gap-2">
@@ -427,21 +430,15 @@ export default function App() {
             <Plus className="w-4 h-4 text-zinc-400" />
           </button>
         </div>
-        
         <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
           <div className="text-xs font-semibold text-zinc-500 mb-2 px-2 mt-2 tracking-wider uppercase">History</div>
           {sessions.map((session, idx) => (
-             <button 
-                key={idx} 
-                onClick={() => loadSession(session.session_id)} 
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm truncate transition-all ${currentSessionId === session.session_id ? 'bg-indigo-500/10 text-indigo-300 font-medium' : 'hover:bg-white/5 text-zinc-400'}`}
-             >
+             <button key={idx} onClick={() => loadSession(session.session_id)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm truncate transition-all ${currentSessionId === session.session_id ? 'bg-indigo-500/10 text-indigo-300 font-medium' : 'hover:bg-white/5 text-zinc-400'}`}>
                <MessageSquare className="w-4 h-4 shrink-0" />
                <span className="truncate text-left">{session.title || "Unknown Session"}</span>
              </button>
           ))}
         </div>
-
         <div className="p-4 border-t border-white/5 flex items-center justify-between whitespace-nowrap">
           <div className="flex items-center gap-3 truncate">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center font-bold text-sm shrink-0">
@@ -455,10 +452,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* --- MAIN SPATIAL AREA --- */}
       <main className="flex-1 flex flex-col relative h-full min-w-0">
-        
-        {/* Top Navigation */}
         <header className="h-14 flex items-center justify-between px-4 border-b border-white/5 bg-[#09090b]/80 backdrop-blur-md absolute top-0 w-full z-10 pointer-events-none">
           <div className="flex items-center gap-3 pointer-events-auto">
             <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 transition-colors">
@@ -468,26 +462,24 @@ export default function App() {
               AGENT OS {isSpeaking && <span className="text-[10px] text-emerald-400 animate-pulse ml-1">SPEAKING</span>}
             </div>
           </div>
-          
-          <button 
-            onClick={() => { setVoiceMode(!voiceMode); window.speechSynthesis.cancel(); }} 
-            className={`pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voiceMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}
-          >
+          <button onClick={() => { setVoiceMode(!voiceMode); window.speechSynthesis.cancel(); }} className={`pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voiceMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}>
             {voiceMode ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
             Voice Mode
           </button>
         </header>
 
-        {/* --- THE SPATIAL CANVAS WIDGET --- */}
+        {/* --- THE SPATIAL CANVAS WIDGET (NOW WITH EDGES) --- */}
         <div className="flex-1 w-full h-full relative z-0">
-           <SpatialWorkspace nodes={nodes} onNodesChange={onNodesChange} />
+           <SpatialWorkspace 
+              nodes={nodes} 
+              edges={edges} 
+              onNodesChange={onNodesChange} 
+              onEdgesChange={onEdgesChange} 
+           />
         </div>
 
-        {/* --- FLOATING INPUT DOCK --- */}
         <div className="absolute bottom-0 w-full bg-gradient-to-t from-[#09090b] via-[#09090b]/95 to-transparent pt-10 pb-6 px-4 z-10 pointer-events-none">
           <div className="max-w-4xl mx-auto relative pointer-events-auto">
-            
-            {/* Active Files Buffer */}
             {activeFiles.length > 0 && (
               <div className="absolute -top-12 left-0 flex flex-wrap gap-2 max-w-full">
                 {activeFiles.map((filename, idx) => (
@@ -502,34 +494,18 @@ export default function App() {
               </div>
             )}
 
-            {/* Input Box */}
             <div className="relative flex items-end w-full bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/50 transition-all duration-300">
-              
               <div className="flex flex-col w-full min-h-[60px] py-3 px-4">
                 <textarea 
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask Agent OS or generate an image..."
-                  className="w-full bg-transparent text-zinc-100 placeholder:text-zinc-500 resize-none outline-none max-h-48 custom-scrollbar leading-relaxed text-base"
-                  rows={1}
+                  ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
+                  placeholder="Ask Agent OS, generate an image, or run a command..."
+                  className="w-full bg-transparent text-zinc-100 placeholder:text-zinc-500 resize-none outline-none max-h-48 custom-scrollbar leading-relaxed text-base" rows={1}
                 />
-                
                 <div className="flex items-center justify-between pt-2 mt-1">
                   <div className="flex items-center gap-1">
                     <FileUploadButton onUploadSuccess={fetchFiles} currentSessionId={currentSessionId} token={token} />
                   </div>
-                  
-                  <button 
-                    onClick={handleSend}
-                    disabled={isTyping || !input.trim()}
-                    className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 ${
-                      input.trim() && !isTyping
-                        ? 'bg-white text-zinc-950 shadow-md hover:bg-zinc-200' 
-                        : 'bg-white/5 text-zinc-600 cursor-default'
-                    }`}
-                  >
+                  <button onClick={handleSend} disabled={isTyping || !input.trim()} className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 ${input.trim() && !isTyping ? 'bg-white text-zinc-950 shadow-md hover:bg-zinc-200' : 'bg-white/5 text-zinc-600 cursor-default'}`}>
                     <Send className="w-4 h-4 ml-0.5" />
                   </button>
                 </div>
@@ -537,14 +513,13 @@ export default function App() {
             </div>
             
             <div className="text-center mt-3 text-[10px] text-zinc-500">
-              Spatial nodes can be dragged across the infinite canvas.
+              Try: "generate a picture of space" or "run command system ping"
             </div>
           </div>
         </div>
 
       </main>
 
-      {/* Global Styles for Scrollbar */}
       <style dangerouslySetInnerHTML={{__html: `
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
