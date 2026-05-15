@@ -14,6 +14,7 @@ import PyPDF2
 import base64
 import urllib.parse 
 
+# Import vision analysis along with existing functions
 from brain import ask, generate_audio, analyze_image
 from database import (
     create_user_in_db, get_user_from_db,
@@ -31,9 +32,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ==========================================
+# 🔒 AUTHENTICATION SETUP
+# ==========================================
 SECRET_KEY = os.environ.get("JWT_SECRET", "agent_os_super_secret_key_123")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 Days
 
 password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -69,6 +73,9 @@ class UserRegister(BaseModel):
     username: str
     password: str
 
+# ==========================================
+# 🚪 LOGIN & REGISTER ENDPOINTS
+# ==========================================
 @app.post("/register")
 async def register(user: UserRegister):
     existing_user = await get_user_from_db(user.username)
@@ -88,6 +95,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     access_token = create_access_token(data={"sub": user["username"]}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     return {"access_token": access_token, "token_type": "bearer"}
 
+# ==========================================
+# 📂 FILE & SESSION ENDPOINTS
+# ==========================================
 class ChatPayload(BaseModel):
     message: str
     session_id: str = "default"
@@ -146,7 +156,7 @@ async def get_session_history(session_id: str, current_user: str = Depends(get_c
     return {"history": history}
 
 # ==========================================
-# 💬 MAIN CHAT ENDPOINT (IMAGE + TERMINAL GEN-UI)
+# 💬 MAIN CHAT ENDPOINT (THE FULL GEN-UI SUITE)
 # ==========================================
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_current_user)):
@@ -198,6 +208,52 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             
             await save_message(current_user, payload.session_id, "user", payload.message)
             await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Terminal Execution]")
+            return
+
+        # --- 🌐 GEN-UI INTERCEPTOR 3: LIVE CODE ARTIFACTS ---
+        is_code_request = any(trigger in prompt_lower for trigger in ["build a clock", "code a website", "html", "react component", "build a timer"])
+        
+        if is_code_request:
+            html_payload = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <style>
+                body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #09090b; color: #818cf8; font-family: 'Courier New', Courier, monospace; }
+                .clock-container { text-align: center; background: rgba(255,255,255,0.02); padding: 3rem; border-radius: 24px; border: 1px solid rgba(129, 140, 248, 0.2); box-shadow: 0 0 40px rgba(129, 140, 248, 0.1); }
+                .time { font-size: 5rem; font-weight: bold; text-shadow: 0 0 20px rgba(129, 140, 248, 0.5); letter-spacing: 4px; }
+                .date { margin-top: 1rem; color: #a1a1aa; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; }
+            </style>
+            </head>
+            <body>
+                <div class="clock-container">
+                    <div class="time" id="time">00:00:00</div>
+                    <div class="date" id="date">Loading...</div>
+                </div>
+                <script>
+                    function updateClock() {
+                        const now = new Date();
+                        document.getElementById('time').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+                        document.getElementById('date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                    }
+                    setInterval(updateClock, 1000);
+                    updateClock();
+                </script>
+            </body>
+            </html>
+            """
+            
+            artifact_payload = {
+                "type": "genui_event",
+                "widget_type": "web_preview",
+                "htmlCode": html_payload
+            }
+            
+            await asyncio.sleep(1.5) 
+            yield f"data: {json.dumps(artifact_payload)}\n\n"
+            
+            await save_message(current_user, payload.session_id, "user", payload.message)
+            await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Live Code Artifact]")
             return
 
         # --- 💬 STANDARD TEXT STREAMING ---

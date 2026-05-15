@@ -1,7 +1,7 @@
 import React from 'react';
 import { ReactFlow, Background, Controls, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Code2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -25,7 +25,7 @@ const ImageWidgetNode = ({ data }) => (
   </div>
 );
 
-// 2. NEW: The Hacker Terminal Widget
+// 2. The Hacker Terminal Widget
 const TerminalWidgetNode = ({ data }) => (
   <div className="bg-black/90 backdrop-blur-md p-4 rounded-xl border border-zinc-800 shadow-2xl min-w-[400px] max-w-[500px] font-mono">
     <Handle type="target" position={Position.Top} className="opacity-0" />
@@ -44,7 +44,38 @@ const TerminalWidgetNode = ({ data }) => (
   </div>
 );
 
-// 3. The Text Nodes (User & Agent)
+// 3. NEW: Live Code Artifact Widget (The Final Boss)
+const WebPreviewNode = ({ data }) => (
+  <div className="bg-zinc-950 p-2 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] min-h-[350px] flex flex-col">
+    <Handle type="target" position={Position.Top} className="opacity-0" />
+    
+    {/* Mac-style Window Header */}
+    <div className="flex items-center justify-between mb-2 px-2 pb-2 border-b border-white/5 text-zinc-500 mt-1">
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1.5">
+          <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
+          <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
+          <div className="w-3 h-3 rounded-full bg-emerald-500/50"></div>
+        </div>
+        <Code2 className="w-4 h-4 ml-2 text-indigo-400" />
+        <span className="uppercase tracking-widest text-[10px] text-zinc-400 font-mono">Live Artifact Preview</span>
+      </div>
+    </div>
+
+    {/* The Live Sandboxed Iframe */}
+    <div className="flex-1 w-full bg-white rounded-xl overflow-hidden relative">
+      <iframe 
+        srcDoc={data.htmlCode} 
+        className="absolute top-0 left-0 w-full h-full border-none"
+        title="Live Code Preview"
+        sandbox="allow-scripts allow-modals"
+      />
+    </div>
+    <Handle type="source" position={Position.Bottom} className="opacity-0" />
+  </div>
+);
+
+// 4. The Text Nodes (User & Agent)
 const TextNode = ({ data, isUser }) => (
   <div className={`p-4 rounded-2xl border shadow-xl ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[250px] max-w-[400px]`}>
     {isUser ? <Handle type="source" position={Position.Bottom} className="opacity-0" /> : <Handle type="target" position={Position.Top} className="opacity-0" />}
@@ -55,7 +86,6 @@ const TextNode = ({ data, isUser }) => (
     <div className="text-sm leading-relaxed">
        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.label}</ReactMarkdown>
     </div>
-    {/* Give assistant nodes a source handle so conversations can branch downwards */}
     {!isUser && <Handle type="source" position={Position.Bottom} className="opacity-0" />}
   </div>
 );
@@ -65,21 +95,15 @@ const nodeTypes = {
   user_input: (props) => <TextNode {...props} isUser={true} />,
   assistant_response: (props) => <TextNode {...props} isUser={false} />,
   assistant_genui_image: ImageWidgetNode,
-  assistant_genui_terminal: TerminalWidgetNode, // <-- NEW TERMINAL
+  assistant_genui_terminal: TerminalWidgetNode,
+  assistant_genui_preview: WebPreviewNode, // <-- NEW LIVE PREVIEW
 };
 
-// The Main Canvas Component (Now accepts edges!)
+// The Main Canvas Component
 export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesChange }) {
   return (
     <div className="w-full h-full bg-[#09090b]">
-      <ReactFlow 
-        nodes={nodes} 
-        edges={edges}
-        onNodesChange={onNodesChange} 
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes} 
-        fitView
-      >
+      <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} fitView>
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
       </ReactFlow>
