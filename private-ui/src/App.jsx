@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useNodesState, useEdgesState } from '@xyflow/react'; // <-- EDGES ADDED
+import { useNodesState, useEdgesState } from '@xyflow/react';
 import SpatialWorkspace from './SpatialWorkspace';
 import { 
   Send, Bot, User, Loader2, Paperclip, X, Plus, 
@@ -152,7 +152,7 @@ export default function App() {
   const [input, setInput] = useState('');
   
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]); // <-- EDGES STATE
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]); 
   const lastYPosition = useRef(100);
   
   const [isTyping, setIsTyping] = useState(false);
@@ -198,7 +198,7 @@ export default function App() {
       localStorage.removeItem("agent_os_token");
       localStorage.removeItem("agent_os_user");
       setNodes([]);
-      setEdges([]); // Clear edges
+      setEdges([]); 
       setSessions([]);
       window.speechSynthesis.cancel();
   };
@@ -270,6 +270,7 @@ export default function App() {
       window.speechSynthesis.speak(utterance);
   };
 
+  // UPGRADED ROBUST SSE HANDLER
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || isTyping) return;
@@ -288,28 +289,19 @@ export default function App() {
     const userNodeId = `user-${newNodeId}`;
     const aiNodeId = `ai-${newNodeId}`;
 
-    // 1. Plot User Node
     setNodes((nds) => [
       ...nds,
       { id: userNodeId, type: 'user_input', position: { x: 400, y: userY }, data: { label: currentInput } }
     ]);
 
-    // 2. Plot initial empty Assistant Node
     setNodes((nds) => [
       ...nds,
       { id: aiNodeId, type: 'assistant_response', position: { x: 400, y: aiY }, data: { label: "" } }
     ]);
 
-    // 3. NEW: Draw glowing line!
     setEdges((eds) => [
         ...eds,
-        { 
-          id: `edge-${newNodeId}`, 
-          source: userNodeId, 
-          target: aiNodeId, 
-          animated: true, 
-          style: { stroke: '#818cf8', strokeWidth: 2 } 
-        }
+        { id: `edge-${newNodeId}`, source: userNodeId, target: aiNodeId, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } }
     ]);
 
     let fullAiText = "";
@@ -321,58 +313,55 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
       
+      // NEW: Robust buffer for large payloads like HTML code!
+      let buffer = "";
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        
+        // SSE messages are separated by double newlines.
+        // We split by double newline to ensure we only parse complete JSON chunks.
+        const lines = buffer.split("\n\n"); 
+        
+        // The last item might be an incomplete chunk, so we keep it in the buffer for the next loop.
+        buffer = lines.pop(); 
         
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
-                const data = JSON.parse(line.replace("data: ", ""));
+                // Safer JSON parsing
+                const jsonString = line.substring(6);
+                const data = JSON.parse(jsonString);
                 
                 // Gen-UI Interceptor Logic
                 if (data.type === 'genui_event') {
-                   // Image GenUI
                    if (data.widget_type === 'image_generated') {
-                       setNodes((nds) => nds.map((node) => {
-                           if(node.id === aiNodeId) {
-                               return { 
-                                   ...node, 
-                                   type: 'assistant_genui_image', 
-                                   data: { image_url: data.image_url, isLoading: false }
-                                };
-                           }
-                           return node;
-                       }));
+                       setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_image', data: { image_url: data.image_url, isLoading: false } } : node));
                    } 
-                   // Terminal GenUI
                    else if (data.widget_type === 'terminal_output') {
-                       setNodes((nds) => nds.map((node) => {
-                           if(node.id === aiNodeId) {
-                               return { 
-                                   ...node, 
-                                   type: 'assistant_genui_terminal', 
-                                   data: { output: data.output }
-                                };
-                           }
-                           return node;
-                       }));
+                       setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_terminal', data: { output: data.output } } : node));
+                   }
+                   else if (data.widget_type === 'web_preview') {
+                       setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_preview', data: { htmlCode: data.htmlCode } } : node));
                    }
                 } else if (data.token) {
                    fullAiText += data.token;
                    setNodes((nds) => nds.map((node) => {
                        if (node.id === aiNodeId) {
-                           if (node.type !== 'assistant_genui_image' && node.type !== 'assistant_genui_terminal') {
+                           // Exclude all three custom nodes from being overwritten by text
+                           if (node.type !== 'assistant_genui_image' && node.type !== 'assistant_genui_terminal' && node.type !== 'assistant_genui_preview') {
                               return { ...node, data: { ...node.data, label: fullAiText } };
                            }
                        }
                        return node;
                    }));
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error("Chunk parsing error, waiting for more bytes...", e);
+            }
           }
         }
       }
@@ -468,14 +457,9 @@ export default function App() {
           </button>
         </header>
 
-        {/* --- THE SPATIAL CANVAS WIDGET (NOW WITH EDGES) --- */}
+        {/* --- THE SPATIAL CANVAS WIDGET --- */}
         <div className="flex-1 w-full h-full relative z-0">
-           <SpatialWorkspace 
-              nodes={nodes} 
-              edges={edges} 
-              onNodesChange={onNodesChange} 
-              onEdgesChange={onEdgesChange} 
-           />
+           <SpatialWorkspace nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} />
         </div>
 
         <div className="absolute bottom-0 w-full bg-gradient-to-t from-[#09090b] via-[#09090b]/95 to-transparent pt-10 pb-6 px-4 z-10 pointer-events-none">
@@ -513,7 +497,7 @@ export default function App() {
             </div>
             
             <div className="text-center mt-3 text-[10px] text-zinc-500">
-              Try: "generate a picture of space" or "run command system ping"
+              Try: "generate a picture of space", "run command ping", or "build a clock using HTML"
             </div>
           </div>
         </div>
