@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from groq import Groq
 from duckduckgo_search import DDGS
+from datetime import datetime
 
 load_dotenv()
 
@@ -9,58 +10,59 @@ load_dotenv()
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 def needs_web_search(user_message):
-    """
-    ROUTING AGENT: Quickly asks a fast, cheap model if the query 
-    requires live internet data (news, sports, current prices, etc.).
-    """
+    """ROUTING AGENT: Decides if we need the internet."""
     try:
+        print(f"🧭 Routing check for: '{user_message}'")
         response = client.chat.completions.create(
             model="llama3-8b-8192", 
             messages=[
                 {
                     "role": "system", 
-                    "content": "You are a routing AI. If the user's prompt requires recent news, real-time facts, current events, or live internet data, reply with exactly 'YES'. Otherwise, reply 'NO'."
+                    "content": "You are a routing assistant. Reply exactly YES if the user asks for news, current events, real-time prices, or today's information. Otherwise reply NO."
                 },
                 {"role": "user", "content": user_message}
             ],
             max_tokens=10,
             temperature=0.0
         )
-        return "YES" in response.choices[0].message.content.upper()
-    except:
-        return False
+        decision = response.choices[0].message.content.strip().upper()
+        print(f"🧭 Router decided: {decision}")
+        return "YES" in decision
+    except Exception as e:
+        print(f"❌ Router Error: {e}")
+        return True # If the router crashes, fallback to searching just in case!
 
 def perform_web_search(query):
-    """TOOL: Fetches live data from DuckDuckGo."""
+    """TOOL: Fetches live data."""
+    print(f"🌐 Searching web for: {query}")
     try:
         with DDGS() as ddgs:
-            # Grab the top 3 live search results
             results = list(ddgs.text(query, max_results=3))
             if not results:
-                return ""
-            return "\n".join([f"Source: {r['title']}\nInfo: {r['body']}" for r in results])
+                return "No results found."
+            return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
     except Exception as e:
-        print(f"Search Error: {e}")
+        print(f"❌ Web Search Error: {e}")
         return ""
 
 def ask(user_message, history=[]):
-    """
-    MAIN AGENT: Queries the massive Llama-3 model, injecting live web 
-    data and attached PDFs if necessary.
-    """
+    """MAIN AGENT"""
+    # Give the AI a live clock so it knows what "today" means
+    current_date = datetime.now().strftime("%B %d, %Y")
+    
     system_prompt = (
-        "You are AGENT OS, a high-performance, professional AI assistant. "
-        "Provide clear, accurate, and helpful responses. "
+        f"You are AGENT OS, a high-performance, professional AI assistant. "
+        f"Today's date is {current_date}. "
+        "Provide clear, accurate, and helpful responses."
     )
 
-    # 🌐 AUTONOMOUS ACTION: Check if we need to browse the web
+    # Check if we need to browse the web
     if needs_web_search(user_message):
-        yield "*(🌐 Scanning the live web for real-time data...)*\n\n"
+        yield "*(🌐 Scanning the live web...)*\n\n"
         web_data = perform_web_search(user_message)
         if web_data:
             system_prompt += f"\n\n[LIVE WEB SEARCH RESULTS]:\n{web_data}\n\nUse this live data to answer the user's question accurately."
 
-    # Build the messages array
     messages = [{"role": "system", "content": system_prompt}]
     
     for msg in history:
@@ -68,7 +70,6 @@ def ask(user_message, history=[]):
     
     messages.append({"role": "user", "content": user_message})
 
-    # Stream response using the heavy Llama-3 70B model
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
