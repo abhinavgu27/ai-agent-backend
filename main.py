@@ -13,6 +13,7 @@ import io
 import PyPDF2
 import base64
 import urllib.parse 
+from groq import Groq # <-- NEW: Import Groq to generate dynamic code artifacts
 
 # Import vision analysis along with existing functions
 from brain import ask, generate_audio, analyze_image
@@ -31,6 +32,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize Groq client for dynamic Gen-UI artifacts
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 # ==========================================
 # 🔒 AUTHENTICATION SETUP
@@ -156,7 +160,7 @@ async def get_session_history(session_id: str, current_user: str = Depends(get_c
     return {"history": history}
 
 # ==========================================
-# 💬 MAIN CHAT ENDPOINT (THE FULL GEN-UI SUITE)
+# 💬 MAIN CHAT ENDPOINT (DYNAMIC GEN-UI)
 # ==========================================
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_current_user)):
@@ -176,7 +180,7 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
         
         if is_image_request:
             safe_prompt = urllib.parse.quote(payload.message)
-            image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
+            image_url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){safe_prompt}?width=1024&height=1024&nologo=true"
             
             genui_payload = {
                 "type": "genui_event",
@@ -188,9 +192,7 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             yield f"data: {json.dumps(genui_payload)}\n\n"
             
             await save_message(current_user, payload.session_id, "user", payload.message)
-            # Inject the actual code into the LLM's memory so it can answer follow-up questions!
-            memory_context = f"I successfully generated the live web preview. Here is the exact code I used:\n```html\n{html_payload}\n```"
-            await save_message(current_user, payload.session_id, "assistant", memory_context)
+            await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Image - {payload.message}]")
             return
 
         # --- 💻 GEN-UI INTERCEPTOR 2: TERMINAL CONSOLE ---
@@ -212,50 +214,53 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Terminal Execution]")
             return
 
-        # --- 🌐 GEN-UI INTERCEPTOR 3: LIVE CODE ARTIFACTS ---
-        is_code_request = any(trigger in prompt_lower for trigger in ["build a clock", "code a website", "html", "react component", "build a timer"])
+        # --- 🌐 GEN-UI INTERCEPTOR 3: DYNAMIC LIVE CODE ARTIFACTS ---
+        is_code_request = any(trigger in prompt_lower for trigger in ["build a clock", "code a website", "html", "react component", "build a timer", "build calculator", "build a calculator"])
         
         if is_code_request:
-            html_payload = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <style>
-                body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #09090b; color: #818cf8; font-family: 'Courier New', Courier, monospace; }
-                .clock-container { text-align: center; background: rgba(255,255,255,0.02); padding: 3rem; border-radius: 24px; border: 1px solid rgba(129, 140, 248, 0.2); box-shadow: 0 0 40px rgba(129, 140, 248, 0.1); }
-                .time { font-size: 5rem; font-weight: bold; text-shadow: 0 0 20px rgba(129, 140, 248, 0.5); letter-spacing: 4px; }
-                .date { margin-top: 1rem; color: #a1a1aa; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; }
-            </style>
-            </head>
-            <body>
-                <div class="clock-container">
-                    <div class="time" id="time">00:00:00</div>
-                    <div class="date" id="date">Loading...</div>
-                </div>
-                <script>
-                    function updateClock() {
-                        const now = new Date();
-                        document.getElementById('time').textContent = now.toLocaleTimeString('en-US', { hour12: false });
-                        document.getElementById('date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                    }
-                    setInterval(updateClock, 1000);
-                    updateClock();
-                </script>
-            </body>
-            </html>
-            """
+            # Tell the frontend we are compiling so it doesn't just sit there frozen
+            yield f"data: {json.dumps({'token': '*(⚙️ Compiling dynamic code artifact...)*\\n\\n'})}\n\n"
             
-            artifact_payload = {
-                "type": "genui_event",
-                "widget_type": "web_preview",
-                "htmlCode": html_payload
-            }
-            
-            await asyncio.sleep(1.5) 
-            yield f"data: {json.dumps(artifact_payload)}\n\n"
-            
-            await save_message(current_user, payload.session_id, "user", payload.message)
-            await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Live Code Artifact]")
+            try:
+                # Ask Llama 3 to actually write the code based on the user's prompt!
+                sys_prompt = "You are an expert frontend developer. The user wants to build a web UI. Return ONLY valid, single-file HTML code containing embedded CSS and JS. Do not use markdown tags like ```html. Start exactly with <!DOCTYPE html>. Make the UI look modern and dark-mode by default."
+                
+                completion = groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": payload.message}
+                    ],
+                    temperature=0.2
+                )
+                
+                dynamic_html = completion.choices[0].message.content.strip()
+
+                # Clean up markdown if the LLM disobeys and wraps it in formatting
+                if dynamic_html.startswith("```html"):
+                    dynamic_html = dynamic_html[7:]
+                if dynamic_html.startswith("```"):
+                    dynamic_html = dynamic_html[3:]
+                if dynamic_html.endswith("```"):
+                    dynamic_html = dynamic_html[:-3]
+                
+                artifact_payload = {
+                    "type": "genui_event",
+                    "widget_type": "web_preview",
+                    "htmlCode": dynamic_html.strip()
+                }
+                
+                await asyncio.sleep(0.5) 
+                yield f"data: {json.dumps(artifact_payload)}\n\n"
+                
+                # Save the generated code to memory so the LLM can talk about it later!
+                memory_context = f"I successfully generated the live web preview. Here is the exact code I used:\n```html\n{dynamic_html.strip()}\n```"
+                await save_message(current_user, payload.session_id, "user", payload.message)
+                await save_message(current_user, payload.session_id, "assistant", memory_context)
+                
+            except Exception as e:
+                yield f"data: {json.dumps({'token': f'⚠️ Error compiling artifact: {str(e)}'})}\n\n"
+
             return
 
         # --- 💬 STANDARD TEXT STREAMING ---
