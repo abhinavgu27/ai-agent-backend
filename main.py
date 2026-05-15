@@ -12,6 +12,7 @@ import os
 import io
 import PyPDF2
 import base64
+import urllib.parse # <-- NEW: Needed to format the image prompt URL securely
 
 # Import vision analysis along with existing functions
 from brain import ask, generate_audio, analyze_image
@@ -162,7 +163,7 @@ async def get_session_history(session_id: str, current_user: str = Depends(get_c
     return {"history": history}
 
 # ==========================================
-# 💬 MAIN CHAT ENDPOINT (PROTECTED)
+# 💬 MAIN CHAT ENDPOINT (UPGRADED FOR SPATIAL GEN-UI)
 # ==========================================
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_current_user)):
@@ -174,6 +175,35 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
         combined_message = f"[CONTEXT FROM ATTACHED FILES]:\n{uploaded_knowledge}\n\nUSER QUESTION: {payload.message}"
 
     async def event_stream():
+        prompt_lower = payload.message.lower()
+        
+        # --- 🔍 GEN-UI INTERCEPTOR: IMAGE GENERATION ---
+        # If the user asks for an image, hijack the stream and send a spatial widget payload
+        if any(trigger in prompt_lower for trigger in ["generate an image", "create an image", "draw", "generate a picture"]):
+            
+            # Format the prompt for the Pollinations API
+            safe_prompt = urllib.parse.quote(payload.message)
+            image_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true"
+            
+            # Create the exact JSON object the React frontend expects
+            genui_payload = {
+                "type": "genui_event",
+                "widget_type": "image_generated",
+                "image_url": image_url
+            }
+            
+            # Simulate a brief loading period so the UI shows the "Generating..." pulsing brain
+            await asyncio.sleep(1.5) 
+            
+            # Send the spatial widget payload and exit the stream early
+            yield f"data: {json.dumps(genui_payload)}\n\n"
+            
+            # Save the interaction to DB history
+            await save_message(current_user, payload.session_id, "user", payload.message)
+            await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI WIDGET RENDERED: Image - {payload.message}]")
+            return
+
+        # --- 💬 STANDARD TEXT STREAMING ---
         full_text = ""
         for token in ask(combined_message, history):
             if token:

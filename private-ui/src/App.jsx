@@ -3,6 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useNodesState } from '@xyflow/react'; // NEW: xyflow hook
+import SpatialWorkspace from './SpatialWorkspace'; // NEW: The spatial canvas component
 import { 
   Send, Bot, User, Loader2, Paperclip, X, Plus, 
   MessageSquare, LogOut, Lock, Check, Globe, 
@@ -14,7 +16,8 @@ const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
 // ==========================================
 // 🎨 PRO MESSAGE RENDERER
 // ==========================================
-const RenderMessage = ({ content }) => {
+// (This component remains largely the same, but it's now used inside the TextNodes within SpatialWorkspace)
+export const RenderMessage = ({ content }) => {
   const [copiedCode, setCopiedCode] = useState(null);
 
   const hasWebSearch = content.includes("*(🌐 Scanning the live web...)*");
@@ -148,7 +151,11 @@ export default function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   
   const [input, setInput] = useState('');
-  const [chatLog, setChatLog] = useState([]);
+  
+  // NEW: Replaced chatLog array with xyflow nodes state
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const lastYPosition = useRef(100); // Tracks vertical plotting for nodes
+  
   const [isTyping, setIsTyping] = useState(false);
   const [activeFiles, setActiveFiles] = useState([]); 
   const [sessions, setSessions] = useState([]);
@@ -157,7 +164,6 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
 
-  const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
 
   // --- Auth Logic ---
@@ -192,7 +198,7 @@ export default function App() {
       setUsername("");
       localStorage.removeItem("agent_os_token");
       localStorage.removeItem("agent_os_user");
-      setChatLog([]);
+      setNodes([]);
       setSessions([]);
       window.speechSynthesis.cancel();
   };
@@ -229,23 +235,22 @@ export default function App() {
 
   const startNewChat = () => {
       setCurrentSessionId(Date.now().toString());
-      setChatLog([]);
+      setNodes([]);
+      lastYPosition.current = 100; // Reset plotting position
       window.speechSynthesis.cancel();
   };
 
+  // NOTE: loadSession needs a backend update to return layout coordinates, 
+  // but for now we will just reset the canvas.
   const loadSession = async (sessionId) => {
-      setChatLog([]); 
+      setNodes([]); 
+      lastYPosition.current = 100;
       setCurrentSessionId(sessionId);
       window.speechSynthesis.cancel();
-      try {
-          const response = await fetch(`${BACKEND_URL}/history/${sessionId}`, { headers: authHeaders });
-          const data = await response.json();
-          if (data.history && data.history.length > 0) setChatLog(data.history); 
-          else setChatLog([{ role: 'assistant', content: '⚡ **Session Linked:** Memory restored.' }]);
-      } catch (err) {}
+      // Temporarily disabled history fetching until backend sends spatial coordinates
+      setNodes([{ id: 'init', type: 'assistant_response', position: { x: 400, y: 100 }, data: { label: '⚡ **Session Linked:** Spatial Memory ready.' } }]);
   };
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatLog]);
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -268,38 +273,83 @@ export default function App() {
       window.speechSynthesis.speak(utterance);
   };
 
+  // UPGRADED: handleSend now plots nodes on the canvas
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || isTyping) return;
     window.speechSynthesis.cancel();
+    
     const currentInput = input;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    const newHistory = [...chatLog, { role: "user", content: currentInput }];
-    setChatLog([...newHistory, { role: "assistant", content: "" }]);
     setIsTyping(true);
+
+    const newNodeId = Date.now().toString();
+    const userY = lastYPosition.current;
+    const aiY = userY + 150;
+    lastYPosition.current = aiY + 200; // Update for next interaction
+
+    // 1. Plot User Node
+    setNodes((nds) => [
+      ...nds,
+      { id: `user-${newNodeId}`, type: 'user_input', position: { x: 400, y: userY }, data: { label: currentInput } }
+    ]);
+
+    // 2. Plot initial empty Assistant Node
+    const aiNodeId = `ai-${newNodeId}`;
+    setNodes((nds) => [
+      ...nds,
+      { id: aiNodeId, type: 'assistant_response', position: { x: 400, y: aiY }, data: { label: "" } }
+    ]);
+
     let fullAiText = "";
     
     try {
       const response = await fetch(`${BACKEND_URL}/chat`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ message: currentInput, session_id: currentSessionId }) });
       if(response.status === 401) { handleLogout(); return; }
+      
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        
         const chunk = decoder.decode(value);
         const lines = chunk.split("\n");
+        
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
                 const data = JSON.parse(line.replace("data: ", ""));
-                fullAiText += data.token;
-                setChatLog(prev => {
-                  const newLog = [...prev];
-                  newLog[newLog.length - 1].content = fullAiText;
-                  return newLog;
-                });
+                
+                // --- NEW: Handle Generative UI Events from backend ---
+                if (data.type === 'genui_event') {
+                   if (data.widget_type === 'image_generated') {
+                       setNodes((nds) => nds.map((node) => {
+                           if(node.id === aiNodeId) {
+                               return { 
+                                   ...node, 
+                                   type: 'assistant_genui_image', 
+                                   data: { image_url: data.image_url, isLoading: false }
+                                };
+                           }
+                           return node;
+                       }));
+                   }
+                } else if (data.token) {
+                   // --- Standard Text Streaming to specific node ---
+                   fullAiText += data.token;
+                   setNodes((nds) => nds.map((node) => {
+                       if (node.id === aiNodeId) {
+                           // Ensure we don't overwrite an image node if it was transformed
+                           if (node.type !== 'assistant_genui_image') {
+                              return { ...node, data: { ...node.data, label: fullAiText } };
+                           }
+                       }
+                       return node;
+                   }));
+                }
             } catch (e) {}
           }
         }
@@ -307,7 +357,12 @@ export default function App() {
       fetchSessions(); 
       if (voiceMode && fullAiText.trim()) playAudio(fullAiText);
     } catch (err) {
-      setChatLog(prev => [...prev, { role: "assistant", content: "⚠️ **System Error:** Neural link severed." }]);
+      setNodes((nds) => nds.map((node) => {
+          if (node.id === aiNodeId) {
+             return { ...node, data: { ...node.data, label: "⚠️ **System Error:** Neural link severed." } };
+          }
+          return node;
+      }));
     } finally { setIsTyping(false); }
   };
 
@@ -319,7 +374,6 @@ export default function App() {
   if (!token) {
       return (
           <div className="flex items-center justify-center min-h-screen bg-[#09090b] text-zinc-100 font-sans relative overflow-hidden">
-              {/* Subtle background glow */}
               <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-indigo-600/20 blur-[120px] rounded-full pointer-events-none" />
               
               <div className="w-full max-w-md p-8 bg-zinc-900/50 backdrop-blur-2xl rounded-3xl border border-white/10 shadow-2xl relative z-10">
@@ -356,14 +410,14 @@ export default function App() {
   }
 
   // ==========================================
-  // 💻 MAIN APP UI (PREMIUM ADVANCED)
+  // 💻 MAIN APP UI (SPATIAL CANVAS UPGRADE)
   // ==========================================
   return (
     <div className="flex h-screen w-full bg-[#09090b] text-zinc-100 font-sans overflow-hidden">
       
       {/* --- SIDEBAR --- */}
       <aside 
-        className={`${isSidebarOpen ? 'w-72' : 'w-0'} transition-all duration-300 ease-in-out border-r border-white/5 bg-[#09090b]/80 flex flex-col shrink-0`}
+        className={`${isSidebarOpen ? 'w-72' : 'w-0'} transition-all duration-300 ease-in-out border-r border-white/5 bg-[#09090b]/80 flex flex-col shrink-0 z-20`}
       >
         <div className="p-4 border-b border-white/5 whitespace-nowrap">
           <button onClick={startNewChat} className="w-full flex items-center justify-between px-3 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-sm font-medium transition-colors">
@@ -401,12 +455,12 @@ export default function App() {
         </div>
       </aside>
 
-      {/* --- MAIN CHAT AREA --- */}
+      {/* --- MAIN SPATIAL AREA --- */}
       <main className="flex-1 flex flex-col relative h-full min-w-0">
         
         {/* Top Navigation */}
-        <header className="h-14 flex items-center justify-between px-4 border-b border-white/5 bg-[#09090b]/80 backdrop-blur-md absolute top-0 w-full z-10">
-          <div className="flex items-center gap-3">
+        <header className="h-14 flex items-center justify-between px-4 border-b border-white/5 bg-[#09090b]/80 backdrop-blur-md absolute top-0 w-full z-10 pointer-events-none">
+          <div className="flex items-center gap-3 pointer-events-auto">
             <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 transition-colors">
               {isSidebarOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeft className="w-5 h-5" />}
             </button>
@@ -417,61 +471,21 @@ export default function App() {
           
           <button 
             onClick={() => { setVoiceMode(!voiceMode); window.speechSynthesis.cancel(); }} 
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voiceMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}
+            className={`pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voiceMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}
           >
             {voiceMode ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
             Voice Mode
           </button>
         </header>
 
-        {/* Chat Feed */}
-        <div className="flex-1 overflow-y-auto pt-20 pb-40 px-4 md:px-8 lg:px-12 flex flex-col gap-6 custom-scrollbar">
-          <div className="max-w-4xl w-full mx-auto flex flex-col gap-8">
-            
-            {chatLog.length === 0 && (
-               <div className="flex flex-col items-center justify-center mt-32 text-center opacity-50">
-                  <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-4 border border-white/10">
-                    <Sparkles className="w-8 h-8 text-indigo-400" />
-                  </div>
-                  <h3 className="text-xl font-medium mb-2">How can I help you today?</h3>
-                  <p className="text-sm text-zinc-400">Upload documents, write code, or start a conversation.</p>
-               </div>
-            )}
-
-            {chatLog.map((msg, i) => (
-              <div key={i} className="flex gap-4 w-full group">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border mt-1 ${msg.role === 'user' ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400'}`}>
-                  {msg.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
-                </div>
-                <div className="flex flex-col w-full min-w-0">
-                  <div className="font-semibold text-xs text-zinc-500 mb-1 uppercase tracking-wide">
-                    {msg.role === 'user' ? 'You' : 'Agent OS'}
-                  </div>
-                  <RenderMessage content={msg.content} />
-                </div>
-              </div>
-            ))}
-            {isTyping && chatLog[chatLog.length - 1]?.role === 'user' && (
-               <div className="flex gap-4 w-full">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border mt-1 bg-indigo-600/20 border-indigo-500/30 text-indigo-400">
-                    <Bot className="w-5 h-5" />
-                  </div>
-                  <div className="flex items-center mt-2 text-zinc-500">
-                     <span className="flex gap-1">
-                       <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                       <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                       <span className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                     </span>
-                  </div>
-               </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
+        {/* --- THE SPATIAL CANVAS WIDGET --- */}
+        <div className="flex-1 w-full h-full relative z-0">
+           <SpatialWorkspace nodes={nodes} onNodesChange={onNodesChange} />
         </div>
 
         {/* --- FLOATING INPUT DOCK --- */}
-        <div className="absolute bottom-0 w-full bg-gradient-to-t from-[#09090b] via-[#09090b]/95 to-transparent pt-10 pb-6 px-4">
-          <div className="max-w-4xl mx-auto relative">
+        <div className="absolute bottom-0 w-full bg-gradient-to-t from-[#09090b] via-[#09090b]/95 to-transparent pt-10 pb-6 px-4 z-10 pointer-events-none">
+          <div className="max-w-4xl mx-auto relative pointer-events-auto">
             
             {/* Active Files Buffer */}
             {activeFiles.length > 0 && (
@@ -489,7 +503,7 @@ export default function App() {
             )}
 
             {/* Input Box */}
-            <div className="relative flex items-end w-full bg-zinc-900/60 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/50 transition-all duration-300">
+            <div className="relative flex items-end w-full bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/50 transition-all duration-300">
               
               <div className="flex flex-col w-full min-h-[60px] py-3 px-4">
                 <textarea 
@@ -497,7 +511,7 @@ export default function App() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Message the agent..."
+                  placeholder="Ask Agent OS or generate an image..."
                   className="w-full bg-transparent text-zinc-100 placeholder:text-zinc-500 resize-none outline-none max-h-48 custom-scrollbar leading-relaxed text-base"
                   rows={1}
                 />
@@ -523,7 +537,7 @@ export default function App() {
             </div>
             
             <div className="text-center mt-3 text-[10px] text-zinc-500">
-              Agent OS can make mistakes. Consider verifying critical systems.
+              Spatial nodes can be dragged across the infinite canvas.
             </div>
           </div>
         </div>
