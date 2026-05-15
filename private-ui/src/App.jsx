@@ -107,9 +107,16 @@ function FileUploadButton({ onUploadSuccess, currentSessionId, token }) {
               body: formData,
           });
           const data = await response.json();
-          if (data.status === "Success") onUploadSuccess(); 
-      } catch (error) { console.error(error); } 
-      finally {
+          
+          if (data.status === "Success") {
+              onUploadSuccess(); 
+          } else {
+              alert(`Upload Failed: ${data.message || 'Unknown backend error'}`);
+          }
+      } catch (error) { 
+          console.error("Upload exception:", error); 
+          alert("Server Error: Failed to connect to the backend upload route. Check Render logs.");
+      } finally {
           setIsUploading(false);
           event.target.value = null; 
       }
@@ -117,7 +124,6 @@ function FileUploadButton({ onUploadSuccess, currentSessionId, token }) {
 
   return (
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', marginLeft: '4px' }}>
-          {/* UPDATED ACCEPT ATTRIBUTE FOR IMAGES */}
           <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".txt,.md,.pdf,.png,.jpg,.jpeg" style={{ display: 'none' }} />
           <button type="button" onClick={() => fileInputRef.current.click()} disabled={isUploading} style={{ backgroundColor: 'transparent', color: isUploading ? '#10a37f' : '#888', border: 'none', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isUploading ? 'default' : 'pointer', transition: 'all 0.2s' }}>
               {isUploading ? <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> : <Paperclip size={20} />}
@@ -360,12 +366,33 @@ function App() {
             </div>
         </main>
 
-        <footer style={{ padding: '20px' }}>
-          <div style={{ maxWidth: '850px', margin: '0 auto' }}>
-            <form style={{ display: 'flex', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '20px', padding: '12px' }}>
+        <footer style={{ padding: '20px 20px 40px', background: 'linear-gradient(to top, #0A0A0A 70%, transparent)' }}>
+          <div style={{ maxWidth: '850px', margin: '0 auto', position: 'relative' }}>
+            
+            {activeFiles.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                    {activeFiles.map((filename, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '6px 12px', fontSize: '0.8rem', color: '#ccc' }}>
+                            <Paperclip size={14} style={{ marginRight: '6px', color: '#10a37f' }} />
+                            {filename}
+                        </div>
+                    ))}
+                    <button onClick={handleClearFiles} style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(235, 87, 87, 0.1)', border: '1px solid rgba(235, 87, 87, 0.2)', borderRadius: '8px', padding: '6px 12px', fontSize: '0.8rem', color: '#eb5757', cursor: 'pointer', transition: 'all 0.2s' }}>
+                        <X size={14} style={{ marginRight: '4px' }} /> Clear
+                    </button>
+                </div>
+            )}
+
+            <form style={{ display: 'flex', alignItems: 'flex-end', backgroundColor: 'rgba(255,255,255,0.03)', backdropFilter: 'blur(10px)', borderRadius: '20px', padding: '12px 16px', border: '1px solid rgba(255,255,255,0.1)' }}>
               <FileUploadButton onUploadSuccess={fetchFiles} currentSessionId={currentSessionId} token={token} />
-              <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Message Agent OS..." style={{ flex: 1, background: 'none', border: 'none', color: '#fff', outline: 'none' }} />
-              <button onClick={handleSend} disabled={isTyping || !input.trim()} style={{ background: 'none', color: '#10a37f', border: 'none', cursor: 'pointer' }}><Send size={20} /></button>
+              <textarea 
+                ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
+                placeholder="Message Agent OS..." rows={1}
+                style={{ flex: 1, padding: '12px', backgroundColor: 'transparent', border: 'none', color: '#fff', outline: 'none', fontSize: '1.05rem', resize: 'none', fontFamily: 'inherit', maxHeight: '200px', lineHeight: '1.5' }}
+              />
+              <button type="button" onClick={handleSend} disabled={isTyping || !input.trim()} style={{ backgroundColor: (isTyping || !input.trim()) ? 'rgba(255,255,255,0.1)' : '#10a37f', color: (isTyping || !input.trim()) ? '#555' : 'white', border: 'none', borderRadius: '14px', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: (isTyping || !input.trim()) ? 'default' : 'pointer', transition: 'all 0.2s', marginBottom: '4px', flexShrink: 0 }}>
+                <Send size={20} />
+              </button>
             </form>
           </div>
         </footer>
