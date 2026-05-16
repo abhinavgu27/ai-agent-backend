@@ -10,3 +10,4 @@ PyJWT
 pwdlib[argon2]
 requests
 Pillow
+websockets
