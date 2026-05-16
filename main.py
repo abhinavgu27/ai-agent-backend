@@ -13,6 +13,7 @@ import io
 import PyPDF2
 import base64
 import urllib.parse 
+import httpx # ⚡ NEW: For GitHub API
 from groq import Groq 
 
 from brain import ask, generate_audio, analyze_image
@@ -110,6 +111,34 @@ async def list_sessions(current_user: str = Depends(get_current_user)): return {
 @app.get("/history/{session_id}")
 async def get_session_history(session_id: str, current_user: str = Depends(get_current_user)): return {"history": await get_history(current_user, session_id, limit=50)}
 
+# ⚡ NEW: GITHUB REPO FETCHER
+async def extract_github_tree(repo_url: str):
+    """Fetches the root directory structure of a GitHub repo."""
+    try:
+        # Extract owner and repo from URL (e.g., https://github.com/vercel/next.js)
+        parts = repo_url.rstrip('/').split('/')
+        if len(parts) < 2: return None
+        owner, repo = parts[-2], parts[-1]
+        
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(api_url)
+            if response.status_code != 200: return None
+            
+            data = response.json()
+            # We will only grab files/folders, limit to top 20 so we don't crash the canvas
+            tree = []
+            for item in data[:20]:
+                tree.append({
+                    "name": item["name"],
+                    "type": item["type"], # 'file' or 'dir'
+                    "url": item["html_url"]
+                })
+            return {"owner": owner, "repo": repo, "tree": tree}
+    except Exception as e:
+        return None
+
 @app.post("/chat")
 async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_current_user)):
     history = await get_history(current_user, payload.session_id)
@@ -121,6 +150,26 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
     async def event_stream():
         prompt_lower = payload.message.lower()
         
+        # ⚡ 1. THE GITHUB ARCHITECT TRIGGER
+        if "github.com/" in prompt_lower and any(w in prompt_lower for w in ["analyze", "map", "read", "load", "open"]):
+            yield f"data: {json.dumps({'token': '*(🐙 Cloning GitHub Repository...)*\\n\\n'})}\n\n"
+            
+            # Extract URL
+            words = payload.message.split()
+            repo_url = next((w for w in words if "github.com/" in w), None)
+            
+            if repo_url:
+                repo_data = await extract_github_tree(repo_url)
+                if repo_data:
+                    await asyncio.sleep(1)
+                    yield f"data: {json.dumps({'type': 'genui_event', 'widget_type': 'github_map', 'repo_data': repo_data})}\n\n"
+                    await save_message(current_user, payload.session_id, "user", payload.message)
+                    await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI: GitHub Map Generated for {repo_data['repo']}]")
+                    return
+                else:
+                    yield f"data: {json.dumps({'token': '⚠️ Failed to access repository. Ensure it is public and the URL is correct.'})}\n\n"
+
+        # 2. Image Trigger
         if ("image" in prompt_lower or "picture" in prompt_lower) and any(w in prompt_lower for w in ["generate", "create", "make", "draw"]):
             image_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(payload.message)}?width=1024&height=1024&nologo=true"
             await asyncio.sleep(1.5) 
@@ -129,6 +178,7 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI: Image Generated]")
             return
 
+        # 3. Terminal Trigger
         if any(t in prompt_lower for t in ["run command", "system status", "ping", "execute server"]):
             output = f"agent-os@root:~$ {payload.message}\n> Initializing secure shell...\n> [OK] Access Granted.\n> System status: NOMINAL.\n> Operation completed in 1.04s"
             await asyncio.sleep(1) 
@@ -137,6 +187,7 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             await save_message(current_user, payload.session_id, "assistant", f"[GEN-UI: Terminal Executed]")
             return
 
+        # 4. Web Preview Trigger
         is_build_verb = any(v in prompt_lower for v in ["build", "create", "make", "generate", "code me", "write a"])
         is_app_noun = any(n in prompt_lower for n in ["calculator", "clock", "timer", "website", "app", "ui", "component", "game"])
         
@@ -165,6 +216,7 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             except Exception as e: yield f"data: {json.dumps({'token': f'⚠️ Error: {str(e)}'})}\n\n"
             return
 
+        # Default standard chat
         full_text = ""
         for token in ask(combined_message, history):
             if token:
@@ -204,7 +256,7 @@ async def load_canvas(session_id: str, current_user: str = Depends(get_current_u
 
 
 # ==========================================
-# ⚡ MULTIPLAYER WEBSOCKET HUB (NEW)
+# ⚡ MULTIPLAYER WEBSOCKET HUB
 # ==========================================
 class ConnectionManager:
     def __init__(self):
