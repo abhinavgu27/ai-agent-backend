@@ -14,7 +14,8 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client.agent_os_pro
 chats_collection = db.conversations
 knowledge_collection = db.knowledge
-users_collection = db.users  # NEW: Users collection
+users_collection = db.users  
+canvas_collection = db.canvas_states  # 🗺️ NEW: Spatial Memory Collection
 
 # ==========================================
 # 🔒 USER AUTHENTICATION
@@ -98,3 +99,26 @@ async def clear_session_knowledge(username: str, session_id: str):
         await knowledge_collection.delete_many({"username": username, "session_id": session_id})
     except Exception as e:
         print(f"❌ Delete Knowledge Error: {e}")
+
+# ==========================================
+# 🗺️ TRUE SPATIAL MEMORY (NEW)
+# ==========================================
+async def save_canvas_state(username: str, session_id: str, nodes: list, edges: list):
+    try:
+        await canvas_collection.update_one(
+            {"username": username, "session_id": session_id},
+            {"$set": {"nodes": nodes, "edges": edges}},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"❌ DB Canvas Save Error: {e}")
+
+async def get_canvas_state(username: str, session_id: str):
+    try:
+        doc = await canvas_collection.find_one({"username": username, "session_id": session_id})
+        if doc:
+            return {"nodes": doc.get("nodes", []), "edges": doc.get("edges", [])}
+        return None
+    except Exception as e:
+        print(f"❌ DB Canvas Fetch Error: {e}")
+        return None

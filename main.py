@@ -20,7 +20,8 @@ from brain import ask, generate_audio, analyze_image
 from database import (
     create_user_in_db, get_user_from_db,
     save_message, get_history, get_all_sessions,
-    save_file_context, get_all_file_context, get_uploaded_filenames, clear_session_knowledge
+    save_file_context, get_all_file_context, get_uploaded_filenames, clear_session_knowledge,
+    save_canvas_state, get_canvas_state # <--- ADD THESE TWO
 )
 
 app = FastAPI()
@@ -183,6 +184,25 @@ class AudioPayload(BaseModel): text: str
 async def speak_endpoint(payload: AudioPayload, current_user: str = Depends(get_current_user)):
     try: return StreamingResponse(generate_audio(payload.text.replace("*(🌐 Scanning the live web...)*\n\n", "")), media_type="audio/mpeg")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# 🗺️ SPATIAL MEMORY ROUTES
+# ==========================================
+class CanvasPayload(BaseModel):
+    nodes: list
+    edges: list
+
+@app.post("/canvas/{session_id}")
+async def save_canvas(session_id: str, payload: CanvasPayload, current_user: str = Depends(get_current_user)):
+    await save_canvas_state(current_user, session_id, payload.nodes, payload.edges)
+    return {"status": "success"}
+
+@app.get("/canvas/{session_id}")
+async def load_canvas(session_id: str, current_user: str = Depends(get_current_user)):
+    data = await get_canvas_state(current_user, session_id)
+    if data:
+        return data
+    return {"nodes": [], "edges": []}    
 
 if __name__ == "__main__":
     import uvicorn
