@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useNodesState, useEdgesState } from '@xyflow/react';
+import { useNodesState, useEdgesState, addEdge } from '@xyflow/react';
 import SpatialWorkspace from './SpatialWorkspace';
 import { 
   Send, Bot, User, Loader2, Paperclip, X, Plus, 
@@ -165,6 +165,11 @@ export default function App() {
 
   const textareaRef = useRef(null);
 
+  // --- MANUAL MIND-MAP CONNECTING ---
+  const onConnect = useCallback((connection) => {
+    setEdges((eds) => addEdge({ ...connection, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } }, eds));
+  }, [setEdges]);
+
   // --- Auth Logic ---
   const handleAuth = async (e) => {
       e.preventDefault();
@@ -270,7 +275,6 @@ export default function App() {
       window.speechSynthesis.speak(utterance);
   };
 
-  // UPGRADED ROBUST SSE HANDLER
   const handleSend = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || isTyping) return;
@@ -313,7 +317,6 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
       
-      // NEW: Robust buffer for large payloads like HTML code!
       let buffer = "";
       
       while (true) {
@@ -321,22 +324,15 @@ export default function App() {
         if (done) break;
         
         buffer += decoder.decode(value, { stream: true });
-        
-        // SSE messages are separated by double newlines.
-        // We split by double newline to ensure we only parse complete JSON chunks.
         const lines = buffer.split("\n\n"); 
-        
-        // The last item might be an incomplete chunk, so we keep it in the buffer for the next loop.
         buffer = lines.pop(); 
         
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
-                // Safer JSON parsing
                 const jsonString = line.substring(6);
                 const data = JSON.parse(jsonString);
                 
-                // Gen-UI Interceptor Logic
                 if (data.type === 'genui_event') {
                    if (data.widget_type === 'image_generated') {
                        setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_image', data: { image_url: data.image_url, isLoading: false } } : node));
@@ -351,7 +347,6 @@ export default function App() {
                    fullAiText += data.token;
                    setNodes((nds) => nds.map((node) => {
                        if (node.id === aiNodeId) {
-                           // Exclude all three custom nodes from being overwritten by text
                            if (node.type !== 'assistant_genui_image' && node.type !== 'assistant_genui_terminal' && node.type !== 'assistant_genui_preview') {
                               return { ...node, data: { ...node.data, label: fullAiText } };
                            }
@@ -457,9 +452,15 @@ export default function App() {
           </button>
         </header>
 
-        {/* --- THE SPATIAL CANVAS WIDGET --- */}
+        {/* --- THE SPATIAL CANVAS WIDGET (WITH MANUAL LINKING) --- */}
         <div className="flex-1 w-full h-full relative z-0">
-           <SpatialWorkspace nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} />
+           <SpatialWorkspace 
+              nodes={nodes} 
+              edges={edges} 
+              onNodesChange={onNodesChange} 
+              onEdgesChange={onEdgesChange} 
+              onConnect={onConnect} 
+           />
         </div>
 
         <div className="absolute bottom-0 w-full bg-gradient-to-t from-[#09090b] via-[#09090b]/95 to-transparent pt-10 pb-6 px-4 z-10 pointer-events-none">
@@ -497,7 +498,7 @@ export default function App() {
             </div>
             
             <div className="text-center mt-3 text-[10px] text-zinc-500">
-              Try: "generate a picture of space", "run command ping", or "build a clock using HTML"
+              Pan the canvas to navigate unlimited space. Drag nodes by their header.
             </div>
           </div>
         </div>

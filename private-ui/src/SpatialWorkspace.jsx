@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ReactFlow, Background, Controls, Handle, Position, useReactFlow } from '@xyflow/react';
+import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, MiniMap } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -94,6 +94,9 @@ const WindowControls = ({ isCollapsed, setIsCollapsed, onDelete }) => (
   </div>
 );
 
+// Style for interactive handles
+const handleStyle = "w-3 h-3 bg-indigo-500 border-2 border-zinc-950 opacity-30 hover:opacity-100 transition-opacity cursor-crosshair";
+
 // ==========================================
 // 🧩 SPATIAL WIDGETS
 // ==========================================
@@ -105,7 +108,7 @@ const ImageWidgetNode = ({ id, data }) => {
 
   return (
     <div className="bg-zinc-900/80 backdrop-blur-3xl rounded-3xl border border-white/10 shadow-2xl min-w-[320px] overflow-hidden flex flex-col transition-all duration-300">
-      <Handle type="target" position={Position.Top} className="opacity-0" />
+      <Handle type="target" position={Position.Top} className={handleStyle} />
       <div className="flex items-center justify-between p-4 bg-black/20 border-b border-white/5 cursor-grab active:cursor-grabbing">
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-indigo-400" />
@@ -125,7 +128,7 @@ const ImageWidgetNode = ({ id, data }) => {
             )}
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} className="opacity-0" />
+      <Handle type="source" position={Position.Bottom} className={handleStyle} />
     </div>
   );
 };
@@ -137,7 +140,7 @@ const TerminalWidgetNode = ({ id, data }) => {
 
   return (
     <div className="bg-black/90 backdrop-blur-md rounded-xl border border-zinc-800 shadow-2xl min-w-[400px] max-w-[600px] flex flex-col overflow-hidden font-mono transition-all duration-300">
-      <Handle type="target" position={Position.Top} className="opacity-0" />
+      <Handle type="target" position={Position.Top} className={handleStyle} />
       <div className="flex items-center justify-between p-3 bg-zinc-900/50 border-b border-zinc-800 cursor-grab active:cursor-grabbing">
         <div className="flex items-center gap-2">
           <div className="flex gap-1.5">
@@ -156,51 +159,60 @@ const TerminalWidgetNode = ({ id, data }) => {
             <span className="ml-1 text-emerald-400 animate-pulse">_</span>
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} className="opacity-0" />
+      <Handle type="source" position={Position.Bottom} className={handleStyle} />
     </div>
   );
 };
 
+// 🌟 UPGRADED: Live Code Artifact Widget (With Built-In Editor!)
 const WebPreviewNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [view, setView] = useState('preview'); // 'preview' or 'code'
+  const [liveCode, setLiveCode] = useState(data.htmlCode || ""); 
   
   const deleteNode = () => { setNodes((nds) => nds.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(data.htmlCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
     <div className="bg-zinc-950 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] flex flex-col overflow-hidden transition-all duration-300">
-      <Handle type="target" position={Position.Top} className="opacity-0" />
+      <Handle type="target" position={Position.Top} className={handleStyle} />
+      
       <div className="flex items-center justify-between p-3 bg-black/40 border-b border-white/5 cursor-grab active:cursor-grabbing">
-        <div className="flex items-center gap-2 text-zinc-500">
+        
+        {/* Left Side: Traffic Lights & View Toggle */}
+        <div className="flex items-center gap-4 text-zinc-500">
           <div className="flex gap-1.5">
             <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
             <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
             <div className="w-3 h-3 rounded-full bg-emerald-500/50"></div>
           </div>
-          <Code2 className="w-4 h-4 ml-2 text-indigo-400" />
-          <span className="uppercase tracking-widest text-[10px] text-zinc-400 font-mono">Live Artifact Preview</span>
+          
+          {/* Toggles */}
+          <div className="flex bg-zinc-900 rounded-lg p-0.5 nodrag">
+             <button onClick={() => setView('preview')} className={`text-[10px] font-bold px-3 py-1 rounded-md transition-colors ${view === 'preview' ? 'bg-indigo-500 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Preview</button>
+             <button onClick={() => setView('code')} className={`flex items-center gap-1 text-[10px] font-bold px-3 py-1 rounded-md transition-colors ${view === 'code' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                <Pencil className="w-3 h-3" /> Edit Code
+             </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={handleCopy} className="flex items-center gap-1.5 text-[10px] font-mono bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-1 rounded-md transition-colors nodrag">
-            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-            {copied ? "COPIED!" : "COPY HTML"}
-          </button>
-          <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
-        </div>
+
+        <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
       </div>
+
       {!isCollapsed && (
         <div className="flex-1 w-full min-h-[400px] bg-white relative nodrag">
-          <iframe srcDoc={data.htmlCode} className="absolute top-0 left-0 w-full h-full border-none" title="Live Code Preview" sandbox="allow-scripts allow-modals" />
+          {view === 'preview' ? (
+             <iframe srcDoc={liveCode} className="absolute top-0 left-0 w-full h-full border-none" title="Live Code Preview" sandbox="allow-scripts allow-modals" />
+          ) : (
+             <textarea 
+               className="absolute top-0 left-0 w-full h-full bg-[#0d0d0d] text-emerald-400 font-mono text-[11px] p-4 outline-none resize-none custom-scrollbar"
+               value={liveCode}
+               onChange={(e) => setLiveCode(e.target.value)}
+             />
+          )}
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} className="opacity-0" />
+      <Handle type="source" position={Position.Bottom} className={handleStyle} />
     </div>
   );
 };
@@ -215,9 +227,8 @@ const TextNode = ({ id, data, isUser }) => {
   };
 
   return (
-    // UPGRADE: Changed min-w to 150px and added w-fit so it hugs short text tightly!
     <div className={`rounded-2xl border shadow-xl flex flex-col overflow-hidden transition-all duration-300 ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[150px] max-w-[650px] w-fit`}>
-      {isUser ? <Handle type="source" position={Position.Bottom} className="opacity-0" /> : <Handle type="target" position={Position.Top} className="opacity-0" />}
+      {isUser ? <Handle type="source" position={Position.Bottom} className={handleStyle} /> : <Handle type="target" position={Position.Top} className={handleStyle} />}
 
       <div className="flex items-center justify-between p-3 bg-black/20 border-b border-white/5 cursor-grab active:cursor-grabbing">
          <div className="flex items-center gap-2 pr-4">
@@ -233,7 +244,7 @@ const TextNode = ({ id, data, isUser }) => {
         </div>
       )}
 
-      {!isUser && <Handle type="source" position={Position.Bottom} className="opacity-0" />}
+      {!isUser && <Handle type="source" position={Position.Bottom} className={handleStyle} />}
     </div>
   );
 };
@@ -246,21 +257,30 @@ const nodeTypes = {
   assistant_genui_preview: WebPreviewNode,
 };
 
-export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesChange }) {
+export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesChange, onConnect }) {
   return (
     <div className="w-full h-full bg-[#09090b]">
-      {/* UPGRADE: Added fitViewOptions={{ maxZoom: 1 }} to prevent giant zooming on startup! */}
       <ReactFlow 
         nodes={nodes} 
         edges={edges} 
         onNodesChange={onNodesChange} 
         onEdgesChange={onEdgesChange} 
+        onConnect={onConnect}
         nodeTypes={nodeTypes} 
         fitView
         fitViewOptions={{ maxZoom: 1, padding: 0.5 }} 
+        snapToGrid={true}
+        snapGrid={[24, 24]}
       >
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
+        
+        {/* THE GOD'S-EYE MINIMAP */}
+        <MiniMap 
+          nodeColor="#4f46e5" 
+          maskColor="rgba(0, 0, 0, 0.7)" 
+          style={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem' }} 
+        />
       </ReactFlow>
     </div>
   );
