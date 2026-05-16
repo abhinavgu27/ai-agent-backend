@@ -215,19 +215,16 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
             return
 
         # --- 🌐 GEN-UI INTERCEPTOR 3: DYNAMIC LIVE CODE ARTIFACTS ---
-        # Only trigger if they use an action verb (build/create) AND a UI noun (calculator/app)
         is_build_verb = any(v in prompt_lower for v in ["build", "create", "make", "generate", "code me", "write a"])
         is_app_noun = any(n in prompt_lower for n in ["calculator", "clock", "timer", "website", "app", "ui", "component", "game"])
         
-        # Don't trigger if they are just asking to "show" or "give" the code
-        is_code_request = is_build_verb and is_app_noun and not any(skip in prompt_lower for skip in ["give", "show", "what is", "how to"])
+        # Simplified: If they ask to build an app, always give them the visual widget!
+        is_code_request = is_build_verb and is_app_noun
         
         if is_code_request:
-            # Tell the frontend we are compiling so it doesn't just sit there frozen
             yield f"data: {json.dumps({'token': '*(⚙️ Compiling dynamic code artifact...)*\\n\\n'})}\n\n"
             
             try:
-                # Ask Llama 3 to actually write the code based on the user's prompt!
                 sys_prompt = "You are an expert frontend developer. The user wants to build a web UI. Return ONLY valid, single-file HTML code containing embedded CSS and JS. Do not use markdown tags like ```html. Start exactly with <!DOCTYPE html>. Make the UI look modern and dark-mode by default."
                 
                 completion = groq_client.chat.completions.create(
@@ -241,7 +238,6 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
                 
                 dynamic_html = completion.choices[0].message.content.strip()
 
-                # Clean up markdown if the LLM disobeys and wraps it in formatting
                 if dynamic_html.startswith("```html"):
                     dynamic_html = dynamic_html[7:]
                 if dynamic_html.startswith("```"):
@@ -258,7 +254,6 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
                 await asyncio.sleep(0.5) 
                 yield f"data: {json.dumps(artifact_payload)}\n\n"
                 
-                # Save the generated code to memory so the LLM can talk about it later!
                 memory_context = f"I successfully generated the live web preview. Here is the exact code I used:\n```html\n{dynamic_html.strip()}\n```"
                 await save_message(current_user, payload.session_id, "user", payload.message)
                 await save_message(current_user, payload.session_id, "assistant", memory_context)

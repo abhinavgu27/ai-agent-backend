@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ReactFlow, Background, Controls, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal, Code2 } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -19,7 +19,7 @@ const ImageWidgetNode = ({ data }) => (
           <span className="text-zinc-500 text-xs font-mono animate-pulse">Generating...</span>
       </div>
     ) : (
-      <img src={data.image_url} alt="Generated" className="w-full aspect-square rounded-xl object-cover" />
+      <img src={data.image_url} alt="Generated" className="w-full aspect-square rounded-xl object-cover nodrag" />
     )}
     <Handle type="source" position={Position.Bottom} className="opacity-0" />
   </div>
@@ -38,54 +38,77 @@ const TerminalWidgetNode = ({ data }) => (
       <Terminal className="w-4 h-4 ml-2 text-zinc-600" />
       <span className="uppercase tracking-widest text-[10px] text-zinc-500">System.Terminal // Root</span>
     </div>
-    <div className="text-emerald-400 text-xs whitespace-pre-wrap leading-relaxed">{data.output}</div>
+    {/* Added nodrag and nowheel to allow text selection and scrolling */}
+    <div className="text-emerald-400 text-xs whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto custom-scrollbar nodrag nowheel cursor-text">
+        {data.output}
+    </div>
     <div className="mt-2 text-emerald-400 animate-pulse">_</div>
     <Handle type="source" position={Position.Bottom} className="opacity-0" />
   </div>
 );
 
-// 3. NEW: Live Code Artifact Widget (The Final Boss)
-const WebPreviewNode = ({ data }) => (
-  <div className="bg-zinc-950 p-2 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] min-h-[350px] flex flex-col">
-    <Handle type="target" position={Position.Top} className="opacity-0" />
-    
-    {/* Mac-style Window Header */}
-    <div className="flex items-center justify-between mb-2 px-2 pb-2 border-b border-white/5 text-zinc-500 mt-1">
-      <div className="flex items-center gap-2">
-        <div className="flex gap-1.5">
-          <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
-          <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
-          <div className="w-3 h-3 rounded-full bg-emerald-500/50"></div>
+// 3. Live Code Artifact Widget (Now with Copy Button!)
+const WebPreviewNode = ({ data }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(data.htmlCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="bg-zinc-950 p-2 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] min-h-[350px] flex flex-col">
+      <Handle type="target" position={Position.Top} className="opacity-0" />
+      
+      <div className="flex items-center justify-between mb-2 px-2 pb-2 border-b border-white/5 text-zinc-500 mt-1">
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5">
+            <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
+            <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
+            <div className="w-3 h-3 rounded-full bg-emerald-500/50"></div>
+          </div>
+          <Code2 className="w-4 h-4 ml-2 text-indigo-400" />
+          <span className="uppercase tracking-widest text-[10px] text-zinc-400 font-mono">Live Artifact Preview</span>
         </div>
-        <Code2 className="w-4 h-4 ml-2 text-indigo-400" />
-        <span className="uppercase tracking-widest text-[10px] text-zinc-400 font-mono">Live Artifact Preview</span>
+        
+        {/* NEW: Copy Code Button (nodrag allows it to be clicked) */}
+        <button 
+          onClick={handleCopy} 
+          className="flex items-center gap-1.5 text-[10px] font-mono bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-1 rounded-md transition-colors nodrag"
+        >
+          {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+          {copied ? "COPIED!" : "COPY HTML"}
+        </button>
       </div>
-    </div>
 
-    {/* The Live Sandboxed Iframe */}
-    <div className="flex-1 w-full bg-white rounded-xl overflow-hidden relative">
-      <iframe 
-        srcDoc={data.htmlCode} 
-        className="absolute top-0 left-0 w-full h-full border-none"
-        title="Live Code Preview"
-        sandbox="allow-scripts allow-modals"
-      />
+      <div className="flex-1 w-full bg-white rounded-xl overflow-hidden relative nodrag">
+        <iframe 
+          srcDoc={data.htmlCode} 
+          className="absolute top-0 left-0 w-full h-full border-none"
+          title="Live Code Preview"
+          sandbox="allow-scripts allow-modals"
+        />
+      </div>
+      <Handle type="source" position={Position.Bottom} className="opacity-0" />
     </div>
-    <Handle type="source" position={Position.Bottom} className="opacity-0" />
-  </div>
-);
+  );
+};
 
-// 4. The Text Nodes (User & Agent)
+// 4. The Text Nodes (Now Selectable and Scrollable)
 const TextNode = ({ data, isUser }) => (
-  <div className={`p-4 rounded-2xl border shadow-xl ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[250px] max-w-[400px]`}>
+  <div className={`p-4 rounded-2xl border shadow-xl ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[250px] max-w-[450px]`}>
     {isUser ? <Handle type="source" position={Position.Bottom} className="opacity-0" /> : <Handle type="target" position={Position.Top} className="opacity-0" />}
     <div className="flex items-center gap-2 mb-2 opacity-50">
        {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
        <span className="text-[10px] font-bold uppercase tracking-wider">{isUser ? 'You' : 'Agent OS'}</span>
     </div>
-    <div className="text-sm leading-relaxed">
+    
+    {/* Added nodrag, nowheel, max-h, and overflow so you can highlight text without dragging the node! */}
+    <div className="text-sm leading-relaxed max-h-[400px] overflow-y-auto custom-scrollbar nodrag nowheel cursor-text pr-2">
        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.label}</ReactMarkdown>
     </div>
+    
     {!isUser && <Handle type="source" position={Position.Bottom} className="opacity-0" />}
   </div>
 );
@@ -96,7 +119,7 @@ const nodeTypes = {
   assistant_response: (props) => <TextNode {...props} isUser={false} />,
   assistant_genui_image: ImageWidgetNode,
   assistant_genui_terminal: TerminalWidgetNode,
-  assistant_genui_preview: WebPreviewNode, // <-- NEW LIVE PREVIEW
+  assistant_genui_preview: WebPreviewNode, 
 };
 
 // The Main Canvas Component
