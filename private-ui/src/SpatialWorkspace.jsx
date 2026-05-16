@@ -98,7 +98,6 @@ const WindowControls = ({ isCollapsed, setIsCollapsed, onDelete }) => (
 // 🧩 SPATIAL WIDGETS
 // ==========================================
 
-// 1. The Image Generation Widget
 const ImageWidgetNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -107,8 +106,6 @@ const ImageWidgetNode = ({ id, data }) => {
   return (
     <div className="bg-zinc-900/80 backdrop-blur-3xl rounded-3xl border border-white/10 shadow-2xl min-w-[320px] overflow-hidden flex flex-col transition-all duration-300">
       <Handle type="target" position={Position.Top} className="opacity-0" />
-
-      {/* Draggable Header */}
       <div className="flex items-center justify-between p-4 bg-black/20 border-b border-white/5 cursor-grab active:cursor-grabbing">
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-indigo-400" />
@@ -116,7 +113,6 @@ const ImageWidgetNode = ({ id, data }) => {
         </div>
         <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
       </div>
-
       {!isCollapsed && (
         <div className="p-4 nodrag">
             {data.isLoading ? (
@@ -134,7 +130,6 @@ const ImageWidgetNode = ({ id, data }) => {
   );
 };
 
-// 2. The Hacker Terminal Widget
 const TerminalWidgetNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -143,8 +138,6 @@ const TerminalWidgetNode = ({ id, data }) => {
   return (
     <div className="bg-black/90 backdrop-blur-md rounded-xl border border-zinc-800 shadow-2xl min-w-[400px] max-w-[600px] flex flex-col overflow-hidden font-mono transition-all duration-300">
       <Handle type="target" position={Position.Top} className="opacity-0" />
-
-      {/* Draggable Header */}
       <div className="flex items-center justify-between p-3 bg-zinc-900/50 border-b border-zinc-800 cursor-grab active:cursor-grabbing">
         <div className="flex items-center gap-2">
           <div className="flex gap-1.5">
@@ -157,8 +150,6 @@ const TerminalWidgetNode = ({ id, data }) => {
         </div>
         <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
       </div>
-
-      {/* Selectable Body */}
       {!isCollapsed && (
         <div className="p-4 text-emerald-400 text-xs whitespace-pre-wrap leading-relaxed max-h-[400px] overflow-y-auto custom-scrollbar nodrag select-text cursor-text">
             {data.output}
@@ -170,7 +161,6 @@ const TerminalWidgetNode = ({ id, data }) => {
   );
 };
 
-// 3. Live Code Artifact Widget
 const WebPreviewNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -187,8 +177,6 @@ const WebPreviewNode = ({ id, data }) => {
   return (
     <div className="bg-zinc-950 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] flex flex-col overflow-hidden transition-all duration-300">
       <Handle type="target" position={Position.Top} className="opacity-0" />
-
-      {/* Draggable Header */}
       <div className="flex items-center justify-between p-3 bg-black/40 border-b border-white/5 cursor-grab active:cursor-grabbing">
         <div className="flex items-center gap-2 text-zinc-500">
           <div className="flex gap-1.5">
@@ -199,7 +187,6 @@ const WebPreviewNode = ({ id, data }) => {
           <Code2 className="w-4 h-4 ml-2 text-indigo-400" />
           <span className="uppercase tracking-widest text-[10px] text-zinc-400 font-mono">Live Artifact Preview</span>
         </div>
-
         <div className="flex items-center gap-2">
           <button onClick={handleCopy} className="flex items-center gap-1.5 text-[10px] font-mono bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-1 rounded-md transition-colors nodrag">
             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -208,7 +195,6 @@ const WebPreviewNode = ({ id, data }) => {
           <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
         </div>
       </div>
-
       {!isCollapsed && (
         <div className="flex-1 w-full min-h-[400px] bg-white relative nodrag">
           <iframe srcDoc={data.htmlCode} className="absolute top-0 left-0 w-full h-full border-none" title="Live Code Preview" sandbox="allow-scripts allow-modals" />
@@ -219,7 +205,6 @@ const WebPreviewNode = ({ id, data }) => {
   );
 };
 
-// 4. The Text Nodes (NOW COLLAPSIBLE)
 const TextNode = ({ id, data, isUser }) => {
   const { setNodes, setEdges } = useReactFlow();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -230,19 +215,18 @@ const TextNode = ({ id, data, isUser }) => {
   };
 
   return (
-    <div className={`rounded-2xl border shadow-xl flex flex-col overflow-hidden transition-all duration-300 ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[300px] max-w-[650px]`}>
+    // UPGRADE: Changed min-w to 150px and added w-fit so it hugs short text tightly!
+    <div className={`rounded-2xl border shadow-xl flex flex-col overflow-hidden transition-all duration-300 ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[150px] max-w-[650px] w-fit`}>
       {isUser ? <Handle type="source" position={Position.Bottom} className="opacity-0" /> : <Handle type="target" position={Position.Top} className="opacity-0" />}
 
-      {/* DRAGGABLE HEADER */}
       <div className="flex items-center justify-between p-3 bg-black/20 border-b border-white/5 cursor-grab active:cursor-grabbing">
-         <div className="flex items-center gap-2">
+         <div className="flex items-center gap-2 pr-4">
            {isUser ? <User className="w-4 h-4 opacity-50" /> : <Bot className="w-4 h-4 opacity-50" />}
            <span className="text-[10px] font-bold uppercase tracking-wider opacity-50">{isUser ? 'You' : 'Agent OS'}</span>
          </div>
          <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
       </div>
 
-      {/* SELECTABLE BODY */}
       {!isCollapsed && (
         <div className="p-5 text-sm leading-relaxed nodrag select-text cursor-text">
            <RenderMessage content={data.label} />
@@ -254,7 +238,6 @@ const TextNode = ({ id, data, isUser }) => {
   );
 };
 
-// Registering the Node Types
 const nodeTypes = {
   user_input: (props) => <TextNode {...props} isUser={true} />,
   assistant_response: (props) => <TextNode {...props} isUser={false} />,
@@ -263,11 +246,19 @@ const nodeTypes = {
   assistant_genui_preview: WebPreviewNode,
 };
 
-// The Main Canvas Component
 export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesChange }) {
   return (
     <div className="w-full h-full bg-[#09090b]">
-      <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} fitView>
+      {/* UPGRADE: Added fitViewOptions={{ maxZoom: 1 }} to prevent giant zooming on startup! */}
+      <ReactFlow 
+        nodes={nodes} 
+        edges={edges} 
+        onNodesChange={onNodesChange} 
+        onEdgesChange={onEdgesChange} 
+        nodeTypes={nodeTypes} 
+        fitView
+        fitViewOptions={{ maxZoom: 1, padding: 0.5 }} 
+      >
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
       </ReactFlow>
