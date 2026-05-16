@@ -1,35 +1,121 @@
 import React, { useState } from 'react';
 import { ReactFlow, Background, Controls, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+// ==========================================
+// 🎨 PRO MESSAGE RENDERER
+// ==========================================
+const RenderMessage = ({ content }) => {
+  const [copiedCode, setCopiedCode] = useState(null);
+
+  const hasWebSearch = content.includes("*(🌐 Scanning the live web...)*");
+  const hasVisualIntel = content.includes("[VISUAL DATA FROM IMAGE");
+
+  const cleanContent = content
+    .replace("*(🌐 Scanning the live web...)*\n\n", "")
+    .replace(/\[VISUAL DATA FROM IMAGE .*?\]: /, "👁️ **Visual Intel Acquired:** ");
+
+  const handleCopy = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopiedCode(text);
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
+
+  return (
+    <div className="flex flex-col gap-3 w-full leading-relaxed text-zinc-200">
+      {hasWebSearch && (
+        <div className="flex items-center gap-2 text-emerald-400 text-xs font-medium px-3 py-1.5 bg-emerald-400/10 rounded-lg w-fit border border-emerald-400/20 animate-pulse">
+          <Globe className="w-4 h-4 animate-spin-slow" />
+          Gathering live intel from the web...
+        </div>
+      )}
+
+      {hasVisualIntel && (
+        <div className="flex items-center gap-2 text-indigo-400 text-xs font-medium px-3 py-1.5 bg-indigo-400/10 rounded-lg w-fit border border-indigo-400/20 mb-2">
+          <Bot className="w-4 h-4" />
+          Image Analysis Complete
+        </div>
+      )}
+
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({node, inline, className, children, ...props}) {
+            const match = /language-(\w+)/.exec(className || '')
+            const codeString = String(children).replace(/\n$/, '');
+            return !inline && match ? (
+              <div className="relative my-4 rounded-xl overflow-hidden border border-white/10 shadow-lg bg-[#0d0d0d]">
+                <div className="flex justify-between items-center bg-zinc-900 px-4 py-2 text-xs text-zinc-400 border-b border-white/5">
+                  <span className="font-mono uppercase tracking-wider">{match[1]}</span>
+                  <button onClick={() => handleCopy(codeString)} className="flex items-center gap-1.5 hover:text-zinc-100 transition-colors">
+                    {copiedCode === codeString ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <span className="text-[11px]">Copy</span>}
+                  </button>
+                </div>
+                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" customStyle={{ margin: 0, padding: '1rem', backgroundColor: 'transparent' }} {...props}>
+                  {codeString}
+                </SyntaxHighlighter>
+              </div>
+            ) : (
+              <code className="bg-white/10 text-indigo-300 px-1.5 py-0.5 rounded-md font-mono text-sm" {...props}>
+                {children}
+            </code>
+            )
+          },
+          table({children}) { return <div className="overflow-x-auto my-4"><table className="w-full text-sm text-left border-collapse border border-white/10">{children}</table></div> },
+          th({children}) { return <th className="px-4 py-3 bg-white/5 border-b border-white/10 font-semibold">{children}</th> },
+          td({children}) { return <td className="px-4 py-3 border-b border-white/5">{children}</td> },
+          p({children}) { return <p className="mb-4 last:mb-0">{children}</p> },
+          ul({children}) { return <ul className="list-disc list-inside mb-4 space-y-1">{children}</ul> },
+          ol({children}) { return <ol className="list-decimal list-inside mb-4 space-y-1">{children}</ol> },
+        }}
+      >
+        {cleanContent}
+      </ReactMarkdown>
+    </div>
+  );
+};
+
+// ==========================================
+// 🧩 SPATIAL WIDGETS
+// ==========================================
 
 // 1. The Image Generation Widget
 const ImageWidgetNode = ({ data }) => (
-  <div className="bg-zinc-900/80 backdrop-blur-3xl p-4 rounded-3xl border border-white/10 shadow-2xl min-w-[320px]">
+  <div className="bg-zinc-900/80 backdrop-blur-3xl rounded-3xl border border-white/10 shadow-2xl min-w-[320px] overflow-hidden flex flex-col">
     <Handle type="target" position={Position.Top} className="opacity-0" />
-    <div className="flex items-center gap-2 mb-3 border-b border-white/5 pb-2">
+
+    {/* Draggable Header */}
+    <div className="flex items-center gap-2 p-4 bg-black/20 border-b border-white/5 cursor-grab active:cursor-grabbing">
       <Sparkles className="w-5 h-5 text-indigo-400" />
       <span className="font-semibold text-xs text-zinc-400 uppercase tracking-wide">Image Synthesis</span>
     </div>
-    {data.isLoading ? (
-      <div className="w-full aspect-square bg-zinc-950 rounded-xl flex flex-col items-center justify-center border border-dashed border-white/5 gap-2">
-          <Brain className="w-8 h-8 text-zinc-700 animate-pulse" />
-          <span className="text-zinc-500 text-xs font-mono animate-pulse">Generating...</span>
-      </div>
-    ) : (
-      <img src={data.image_url} alt="Generated" className="w-full aspect-square rounded-xl object-cover nodrag" />
-    )}
+
+    <div className="p-4 nodrag">
+        {data.isLoading ? (
+          <div className="w-full aspect-square bg-zinc-950 rounded-xl flex flex-col items-center justify-center border border-dashed border-white/5 gap-2">
+              <Brain className="w-8 h-8 text-zinc-700 animate-pulse" />
+              <span className="text-zinc-500 text-xs font-mono animate-pulse">Generating...</span>
+          </div>
+        ) : (
+          <img src={data.image_url} alt="Generated" className="w-full aspect-square rounded-xl object-cover pointer-events-none" />
+        )}
+    </div>
     <Handle type="source" position={Position.Bottom} className="opacity-0" />
   </div>
 );
 
 // 2. The Hacker Terminal Widget
 const TerminalWidgetNode = ({ data }) => (
-  <div className="bg-black/90 backdrop-blur-md p-4 rounded-xl border border-zinc-800 shadow-2xl min-w-[400px] max-w-[500px] font-mono">
+  <div className="bg-black/90 backdrop-blur-md rounded-xl border border-zinc-800 shadow-2xl min-w-[400px] max-w-[600px] flex flex-col overflow-hidden font-mono">
     <Handle type="target" position={Position.Top} className="opacity-0" />
-    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-zinc-800 text-zinc-500">
+
+    {/* Draggable Header */}
+    <div className="flex items-center gap-2 p-3 bg-zinc-900/50 border-b border-zinc-800 text-zinc-500 cursor-grab active:cursor-grabbing">
       <div className="flex gap-1.5">
         <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50"></div>
         <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50"></div>
@@ -38,16 +124,18 @@ const TerminalWidgetNode = ({ data }) => (
       <Terminal className="w-4 h-4 ml-2 text-zinc-600" />
       <span className="uppercase tracking-widest text-[10px] text-zinc-500">System.Terminal // Root</span>
     </div>
-    {/* Added nodrag and nowheel to allow text selection and scrolling */}
-    <div className="text-emerald-400 text-xs whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto custom-scrollbar nodrag nowheel cursor-text">
+
+    {/* Selectable Body */}
+    <div className="p-4 text-emerald-400 text-xs whitespace-pre-wrap leading-relaxed max-h-[400px] overflow-y-auto custom-scrollbar nodrag select-text cursor-text">
         {data.output}
+        <span className="ml-1 text-emerald-400 animate-pulse">_</span>
     </div>
-    <div className="mt-2 text-emerald-400 animate-pulse">_</div>
+
     <Handle type="source" position={Position.Bottom} className="opacity-0" />
   </div>
 );
 
-// 3. Live Code Artifact Widget (Now with Copy Button!)
+// 3. Live Code Artifact Widget
 const WebPreviewNode = ({ data }) => {
   const [copied, setCopied] = useState(false);
 
@@ -58,11 +146,12 @@ const WebPreviewNode = ({ data }) => {
   };
 
   return (
-    <div className="bg-zinc-950 p-2 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] min-h-[350px] flex flex-col">
+    <div className="bg-zinc-950 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] min-h-[400px] flex flex-col overflow-hidden">
       <Handle type="target" position={Position.Top} className="opacity-0" />
-      
-      <div className="flex items-center justify-between mb-2 px-2 pb-2 border-b border-white/5 text-zinc-500 mt-1">
-        <div className="flex items-center gap-2">
+
+      {/* Draggable Header with Copy Button */}
+      <div className="flex items-center justify-between p-3 bg-black/40 border-b border-white/5 cursor-grab active:cursor-grabbing">
+        <div className="flex items-center gap-2 text-zinc-500">
           <div className="flex gap-1.5">
             <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
             <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
@@ -71,10 +160,9 @@ const WebPreviewNode = ({ data }) => {
           <Code2 className="w-4 h-4 ml-2 text-indigo-400" />
           <span className="uppercase tracking-widest text-[10px] text-zinc-400 font-mono">Live Artifact Preview</span>
         </div>
-        
-        {/* NEW: Copy Code Button (nodrag allows it to be clicked) */}
-        <button 
-          onClick={handleCopy} 
+
+        <button
+          onClick={handleCopy}
           className="flex items-center gap-1.5 text-[10px] font-mono bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-1 rounded-md transition-colors nodrag"
         >
           {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -82,9 +170,9 @@ const WebPreviewNode = ({ data }) => {
         </button>
       </div>
 
-      <div className="flex-1 w-full bg-white rounded-xl overflow-hidden relative nodrag">
-        <iframe 
-          srcDoc={data.htmlCode} 
+      <div className="flex-1 w-full bg-white relative nodrag">
+        <iframe
+          srcDoc={data.htmlCode}
           className="absolute top-0 left-0 w-full h-full border-none"
           title="Live Code Preview"
           sandbox="allow-scripts allow-modals"
@@ -95,20 +183,22 @@ const WebPreviewNode = ({ data }) => {
   );
 };
 
-// 4. The Text Nodes (Now Selectable and Scrollable)
+// 4. The Text Nodes (NOW FULLY READABLE & SELECTABLE)
 const TextNode = ({ data, isUser }) => (
-  <div className={`p-4 rounded-2xl border shadow-xl ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[250px] max-w-[450px]`}>
+  <div className={`rounded-2xl border shadow-xl flex flex-col overflow-hidden ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[300px] max-w-[650px]`}>
     {isUser ? <Handle type="source" position={Position.Bottom} className="opacity-0" /> : <Handle type="target" position={Position.Top} className="opacity-0" />}
-    <div className="flex items-center gap-2 mb-2 opacity-50">
-       {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-       <span className="text-[10px] font-bold uppercase tracking-wider">{isUser ? 'You' : 'Agent OS'}</span>
+
+    {/* DRAGGABLE HEADER: Click here to move the node */}
+    <div className="flex items-center gap-2 p-3 bg-black/20 border-b border-white/5 cursor-grab active:cursor-grabbing">
+       {isUser ? <User className="w-4 h-4 opacity-50" /> : <Bot className="w-4 h-4 opacity-50" />}
+       <span className="text-[10px] font-bold uppercase tracking-wider opacity-50">{isUser ? 'You' : 'Agent OS'}</span>
     </div>
-    
-    {/* Added nodrag, nowheel, max-h, and overflow so you can highlight text without dragging the node! */}
-    <div className="text-sm leading-relaxed max-h-[400px] overflow-y-auto custom-scrollbar nodrag nowheel cursor-text pr-2">
-       <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.label}</ReactMarkdown>
+
+    {/* SELECTABLE BODY: Expands to fit content, perfectly copyable */}
+    <div className="p-5 text-sm leading-relaxed nodrag select-text cursor-text">
+       <RenderMessage content={data.label} />
     </div>
-    
+
     {!isUser && <Handle type="source" position={Position.Bottom} className="opacity-0" />}
   </div>
 );
@@ -119,7 +209,7 @@ const nodeTypes = {
   assistant_response: (props) => <TextNode {...props} isUser={false} />,
   assistant_genui_image: ImageWidgetNode,
   assistant_genui_terminal: TerminalWidgetNode,
-  assistant_genui_preview: WebPreviewNode, 
+  assistant_genui_preview: WebPreviewNode,
 };
 
 // The Main Canvas Component
