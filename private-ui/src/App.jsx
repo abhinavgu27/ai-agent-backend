@@ -78,7 +78,7 @@ export default function App() {
   const [edges, setEdges] = useState([]); 
   const ws = useRef(null);
 
-  // ⚡ REFS FOR PIPELINE SYNC (Prevents stale state during recursive AI calls)
+  // ⚡ REFS FOR PIPELINE SYNC
   const nodesRef = useRef([]);
   const edgesRef = useRef([]);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
@@ -177,7 +177,6 @@ export default function App() {
             ws.current.send(JSON.stringify({ type: 'full_sync', nodes: nodesRef.current, edges: edgesRef.current }));
         }
 
-        // Trigger the next agent in the pipeline automatically!
         setTimeout(() => {
             const downstreamEdges = edgesRef.current.filter(e => e.source === targetId);
             downstreamEdges.forEach(edge => {
@@ -198,7 +197,6 @@ export default function App() {
       return updated;
     });
 
-    // ⚡ Trigger pipeline if an edge is wired into a Persona Agent
     const sourceNode = nodesRef.current.find(n => n.id === connection.source);
     const targetNode = nodesRef.current.find(n => n.id === connection.target);
 
@@ -209,7 +207,6 @@ export default function App() {
     }
   }, []);
 
-  // --- 📩 INVITATION LINK HANDLER ---
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const workspaceId = urlParams.get('workspace');
@@ -226,7 +223,6 @@ export default function App() {
     alert("🔗 Co-Op Link Copied! Send this to your teammate to join your canvas.");
   };
 
-  // --- 💾 SPATIAL AUTO-SAVE ENGINE ---
   useEffect(() => {
     if (!token || nodes.length === 0) return;
     setIsSaving(true);
@@ -516,7 +512,6 @@ export default function App() {
              <button onClick={handleShare} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                <Users className="w-3.5 h-3.5" /> Invite to Canvas
              </button>
-
              <button onClick={() => { setVoiceMode(!voiceMode); window.speechSynthesis.cancel(); }} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voiceMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}>
                {voiceMode ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
                Voice Mode
@@ -531,6 +526,7 @@ export default function App() {
               onNodesChange={onNodesChange} 
               onEdgesChange={onEdgesChange} 
               onConnect={onConnect} 
+              setNodes={setNodes} 
            />
         </div>
 
@@ -571,7 +567,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-            
             <div className="text-center mt-3 text-[10px] text-zinc-500">
               Pan the canvas to navigate unlimited space. Drag nodes by their header.
             </div>
