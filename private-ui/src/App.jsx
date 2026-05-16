@@ -74,10 +74,15 @@ export default function App() {
   
   const [input, setInput] = useState('');
   
-  // ⚡ MULTIPLAYER STATE
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]); 
   const ws = useRef(null);
+
+  // ⚡ REFS FOR PIPELINE SYNC (Prevents stale state during recursive AI calls)
+  const nodesRef = useRef([]);
+  const edgesRef = useRef([]);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
 
   const lastYPosition = useRef(100);
   const [isTyping, setIsTyping] = useState(false);
@@ -91,79 +96,118 @@ export default function App() {
 
   const textareaRef = useRef(null);
 
-  // --- 🔗 BULLETPROOF WEBSOCKET SYNC ENGINE ---
+  // --- 🔗 WEBSOCKET SYNC ENGINE ---
   useEffect(() => {
     if (!token) return;
-
     let reconnectTimeout;
-    
     const connectWs = () => {
         const wsUrl = BACKEND_URL.replace(/^http/, 'ws') + `/ws/${currentSessionId}`;
-        console.log("⚡ [Agent OS] Attempting connection to:", wsUrl);
-        
         ws.current = new WebSocket(wsUrl);
-
-        ws.current.onopen = () => {
-            console.log("🟢 [Agent OS] Multiplayer Link Connected!");
-        };
-
+        ws.current.onopen = () => console.log("🟢 [Agent OS] Multiplayer Link Connected!");
         ws.current.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if (data.type === 'nodes') {
-                setNodes((nds) => applyNodeChanges(data.changes, nds));
-            } else if (data.type === 'edges') {
-                setEdges((eds) => applyEdgeChanges(data.changes, eds));
-            } else if (data.type === 'full_sync') {
-                setNodes(data.nodes);
-                setEdges(data.edges);
-            }
+            if (data.type === 'nodes') setNodes((nds) => applyNodeChanges(data.changes, nds));
+            else if (data.type === 'edges') setEdges((eds) => applyEdgeChanges(data.changes, eds));
+            else if (data.type === 'full_sync') { setNodes(data.nodes); setEdges(data.edges); }
         };
-
-        ws.current.onerror = (error) => {
-            console.error("🔴 [Agent OS] Multiplayer Link Error:", error);
-        };
-
-        ws.current.onclose = () => {
-            console.log("⚪ [Agent OS] Connection dropped. Reconnecting in 3s...");
-            reconnectTimeout = setTimeout(connectWs, 3000);
-        };
+        ws.current.onclose = () => { reconnectTimeout = setTimeout(connectWs, 3000); };
     };
-
     connectWs();
-
-    return () => {
-        clearTimeout(reconnectTimeout);
-        if (ws.current) {
-            ws.current.onclose = null; // Prevent reconnect loop when switching chats
-            ws.current.close();
-        }
-    };
+    return () => { clearTimeout(reconnectTimeout); if (ws.current) { ws.current.onclose = null; ws.current.close(); } };
   }, [currentSessionId, token]);
 
   const onNodesChange = useCallback((changes) => {
     setNodes((nds) => applyNodeChanges(changes, nds));
-    if (ws.current?.readyState === WebSocket.OPEN) {
-        ws.current.send(JSON.stringify({ type: 'nodes', changes }));
-    }
+    if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'nodes', changes }));
   }, []);
 
   const onEdgesChange = useCallback((changes) => {
     setEdges((eds) => applyEdgeChanges(changes, eds));
-    if (ws.current?.readyState === WebSocket.OPEN) {
-        ws.current.send(JSON.stringify({ type: 'edges', changes }));
-    }
+    if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'edges', changes }));
   }, []);
+
+  // --- 🤖 THE MULTI-AGENT PIPELINE ENGINE ---
+  const runAgentPipeline = async (targetId, inputContext, role) => {
+    setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'running', label: "" } } : n));
+
+    let fullAiText = "";
+    try {
+        const agentPrompt = `You are a specialized ${role}. Analyze the following input and provide your expert output. Do not break character.\n\nINPUT:\n${inputContext}`;
+
+        const response = await fetch(`${BACKEND_URL}/chat`, {
+            method: 'POST',
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ message: agentPrompt, session_id: currentSessionId })
+        });
+
+        if(response.status === 401) { handleLogout(); return; }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n\n");
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                    try {
+                        const jsonString = line.substring(6);
+                        const data = JSON.parse(jsonString);
+
+                        if (data.token) {
+                            fullAiText += data.token;
+                            setNodes(nds => nds.map(node => node.id === targetId ? { ...node, data: { ...node.data, label: fullAiText } } : node));
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+    } catch (err) {
+        setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'idle', label: "⚠️ Pipeline execution failed." } } : n));
+    } finally {
+        setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'idle' } } : n));
+
+        if (ws.current?.readyState === WebSocket.OPEN) {
+            ws.current.send(JSON.stringify({ type: 'full_sync', nodes: nodesRef.current, edges: edgesRef.current }));
+        }
+
+        // Trigger the next agent in the pipeline automatically!
+        setTimeout(() => {
+            const downstreamEdges = edgesRef.current.filter(e => e.source === targetId);
+            downstreamEdges.forEach(edge => {
+                const nextNode = nodesRef.current.find(n => n.id === edge.target);
+                if (nextNode && nextNode.type === 'persona_agent') {
+                    runAgentPipeline(nextNode.id, fullAiText, nextNode.data.role);
+                }
+            });
+        }, 500);
+    }
+  };
 
   const onConnect = useCallback((connection) => {
     const newEdge = { ...connection, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } };
     setEdges((eds) => {
       const updated = addEdge(newEdge, eds);
-      if (ws.current?.readyState === WebSocket.OPEN) {
-          ws.current.send(JSON.stringify({ type: 'full_sync', nodes, edges: updated }));
-      }
+      if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'full_sync', nodes: nodesRef.current, edges: updated }));
       return updated;
     });
-  }, [nodes]);
+
+    // ⚡ Trigger pipeline if an edge is wired into a Persona Agent
+    const sourceNode = nodesRef.current.find(n => n.id === connection.source);
+    const targetNode = nodesRef.current.find(n => n.id === connection.target);
+
+    if (sourceNode && targetNode && targetNode.type === 'persona_agent') {
+        if (sourceNode.data?.label) {
+            runAgentPipeline(targetNode.id, sourceNode.data.label, targetNode.data.role);
+        }
+    }
+  }, []);
 
   // --- 📩 INVITATION LINK HANDLER ---
   useEffect(() => {
@@ -188,11 +232,7 @@ export default function App() {
     setIsSaving(true);
     const timer = setTimeout(async () => {
       try {
-        await fetch(`${BACKEND_URL}/canvas/${currentSessionId}`, {
-          method: 'POST',
-          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ nodes, edges })
-        });
+        await fetch(`${BACKEND_URL}/canvas/${currentSessionId}`, { method: 'POST', headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ nodes, edges }) });
         setIsSaving(false);
       } catch(e) { setIsSaving(false); }
     }, 1500);
@@ -337,20 +377,9 @@ export default function App() {
     const userNodeId = `user-${newNodeId}`;
     const aiNodeId = `ai-${newNodeId}`;
 
-    setNodes((nds) => [
-      ...nds,
-      { id: userNodeId, type: 'user_input', position: { x: 400, y: userY }, data: { label: currentInput } }
-    ]);
-
-    setNodes((nds) => [
-      ...nds,
-      { id: aiNodeId, type: 'assistant_response', position: { x: 400, y: aiY }, data: { label: "" } }
-    ]);
-
-    setEdges((eds) => [
-        ...eds,
-        { id: `edge-${newNodeId}`, source: userNodeId, target: aiNodeId, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } }
-    ]);
+    setNodes((nds) => [ ...nds, { id: userNodeId, type: 'user_input', position: { x: 400, y: userY }, data: { label: currentInput } } ]);
+    setNodes((nds) => [ ...nds, { id: aiNodeId, type: 'assistant_response', position: { x: 400, y: aiY }, data: { label: "" } } ]);
+    setEdges((eds) => [ ...eds, { id: `edge-${newNodeId}`, source: userNodeId, target: aiNodeId, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } } ]);
 
     let fullAiText = "";
     
@@ -377,22 +406,14 @@ export default function App() {
                 const data = JSON.parse(jsonString);
                 
                 if (data.type === 'genui_event') {
-                   if (data.widget_type === 'image_generated') {
-                       setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_image', data: { image_url: data.image_url, isLoading: false } } : node));
-                   } 
-                   else if (data.widget_type === 'terminal_output') {
-                       setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_terminal', data: { output: data.output } } : node));
-                   }
-                   else if (data.widget_type === 'web_preview') {
-                       setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_preview', data: { htmlCode: data.htmlCode } } : node));
-                   }
+                   if (data.widget_type === 'image_generated') setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_image', data: { image_url: data.image_url, isLoading: false } } : node));
+                   else if (data.widget_type === 'terminal_output') setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_terminal', data: { output: data.output } } : node));
+                   else if (data.widget_type === 'web_preview') setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_preview', data: { htmlCode: data.htmlCode } } : node));
                 } else if (data.token) {
                    fullAiText += data.token;
                    setNodes((nds) => nds.map((node) => {
-                       if (node.id === aiNodeId) {
-                           if (node.type !== 'assistant_genui_image' && node.type !== 'assistant_genui_terminal' && node.type !== 'assistant_genui_preview') {
-                              return { ...node, data: { ...node.data, label: fullAiText } };
-                           }
+                       if (node.id === aiNodeId && !['assistant_genui_image', 'assistant_genui_terminal', 'assistant_genui_preview'].includes(node.type)) {
+                           return { ...node, data: { ...node.data, label: fullAiText } };
                        }
                        return node;
                    }));
@@ -404,20 +425,12 @@ export default function App() {
       fetchSessions(); 
       if (voiceMode && fullAiText.trim()) playAudio(fullAiText);
     } catch (err) {
-      setNodes((nds) => nds.map((node) => {
-          if (node.id === aiNodeId) {
-             return { ...node, data: { ...node.data, label: "⚠️ **System Error:** Neural link severed." } };
-          }
-          return node;
-      }));
+      setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, data: { ...node.data, label: "⚠️ **System Error:** Neural link severed." } } : node));
     } finally { 
       setIsTyping(false); 
-      // Force sync the completed AI text to the teammate's screen
       setNodes(currentNodes => {
         setEdges(currentEdges => {
-           if (ws.current?.readyState === WebSocket.OPEN) {
-             ws.current.send(JSON.stringify({ type: 'full_sync', nodes: currentNodes, edges: currentEdges }));
-           }
+           if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'full_sync', nodes: currentNodes, edges: currentEdges }));
            return currentEdges;
         });
         return currentNodes;
@@ -500,7 +513,6 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3 pointer-events-auto">
-             {/* ⚡ NEW SHARE LINK BUTTON */}
              <button onClick={handleShare} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                <Users className="w-3.5 h-3.5" /> Invite to Canvas
              </button>
