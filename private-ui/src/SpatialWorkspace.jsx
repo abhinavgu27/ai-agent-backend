@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, MiniMap } from '@xyflow/react';
+import React, { useState, useEffect } from 'react';
+import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, MiniMap, useUpdateNodeInternals } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -94,7 +94,6 @@ const WindowControls = ({ isCollapsed, setIsCollapsed, onDelete }) => (
   </div>
 );
 
-// Style for interactive handles
 const handleStyle = "w-3 h-3 bg-indigo-500 border-2 border-zinc-950 opacity-30 hover:opacity-100 transition-opacity cursor-crosshair";
 
 // ==========================================
@@ -103,7 +102,11 @@ const handleStyle = "w-3 h-3 bg-indigo-500 border-2 border-zinc-950 opacity-30 h
 
 const ImageWidgetNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Tell React Flow to recalculate handles when minimized
+  useEffect(() => { updateNodeInternals(id); }, [isCollapsed, id, updateNodeInternals]);
   const deleteNode = () => { setNodes((nds) => nds.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); };
 
   return (
@@ -135,7 +138,10 @@ const ImageWidgetNode = ({ id, data }) => {
 
 const TerminalWidgetNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  useEffect(() => { updateNodeInternals(id); }, [isCollapsed, id, updateNodeInternals]);
   const deleteNode = () => { setNodes((nds) => nds.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); };
 
   return (
@@ -164,39 +170,49 @@ const TerminalWidgetNode = ({ id, data }) => {
   );
 };
 
-// 🌟 UPGRADED: Live Code Artifact Widget (With Built-In Editor!)
 const WebPreviewNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [view, setView] = useState('preview'); // 'preview' or 'code'
+  const [view, setView] = useState('preview');
   const [liveCode, setLiveCode] = useState(data.htmlCode || ""); 
+  const [copied, setCopied] = useState(false);
   
+  useEffect(() => { updateNodeInternals(id); }, [isCollapsed, view, id, updateNodeInternals]);
   const deleteNode = () => { setNodes((nds) => nds.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(data.htmlCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className="bg-zinc-950 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] flex flex-col overflow-hidden transition-all duration-300">
       <Handle type="target" position={Position.Top} className={handleStyle} />
       
       <div className="flex items-center justify-between p-3 bg-black/40 border-b border-white/5 cursor-grab active:cursor-grabbing">
-        
-        {/* Left Side: Traffic Lights & View Toggle */}
         <div className="flex items-center gap-4 text-zinc-500">
           <div className="flex gap-1.5">
             <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
             <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
             <div className="w-3 h-3 rounded-full bg-emerald-500/50"></div>
           </div>
-          
-          {/* Toggles */}
           <div className="flex bg-zinc-900 rounded-lg p-0.5 nodrag">
              <button onClick={() => setView('preview')} className={`text-[10px] font-bold px-3 py-1 rounded-md transition-colors ${view === 'preview' ? 'bg-indigo-500 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Preview</button>
              <button onClick={() => setView('code')} className={`flex items-center gap-1 text-[10px] font-bold px-3 py-1 rounded-md transition-colors ${view === 'code' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                <Pencil className="w-3 h-3" /> Edit Code
+                <Pencil className="w-3 h-3" /> Edit
              </button>
           </div>
         </div>
 
-        <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
+        <div className="flex items-center gap-2">
+          <button onClick={handleCopy} className="flex items-center gap-1.5 text-[10px] font-mono bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-1 rounded-md transition-colors nodrag">
+            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            {copied ? "COPIED" : "COPY HTML"}
+          </button>
+          <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
+        </div>
       </div>
 
       {!isCollapsed && (
@@ -219,12 +235,11 @@ const WebPreviewNode = ({ id, data }) => {
 
 const TextNode = ({ id, data, isUser }) => {
   const { setNodes, setEdges } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const [isCollapsed, setIsCollapsed] = useState(false);
   
-  const deleteNode = () => { 
-    setNodes((nds) => nds.filter((n) => n.id !== id)); 
-    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); 
-  };
+  useEffect(() => { updateNodeInternals(id); }, [isCollapsed, id, updateNodeInternals]);
+  const deleteNode = () => { setNodes((nds) => nds.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); };
 
   return (
     <div className={`rounded-2xl border shadow-xl flex flex-col overflow-hidden transition-all duration-300 ${isUser ? 'bg-zinc-800 border-white/10 text-zinc-300' : 'bg-indigo-600/10 border-indigo-500/30 text-zinc-200'} min-w-[150px] max-w-[650px] w-fit`}>
@@ -275,11 +290,14 @@ export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesC
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
         
-        {/* THE GOD'S-EYE MINIMAP */}
+        {/* 🌟 UPGRADE: Fully Interactive Minimap */}
         <MiniMap 
+          position="top-right"
+          zoomable={true}
+          pannable={true}
           nodeColor="#4f46e5" 
           maskColor="rgba(0, 0, 0, 0.7)" 
-          style={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem' }} 
+          style={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', marginTop: '70px' }} 
         />
       </ReactFlow>
     </div>
