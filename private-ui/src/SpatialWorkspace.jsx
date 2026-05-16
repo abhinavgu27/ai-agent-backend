@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, MiniMap, useUpdateNodeInternals, Panel } from '@xyflow/react';
+import React, { useState, useEffect } from 'react';
+import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, MiniMap, useUpdateNodeInternals } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, Camera, Github } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, Github } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import * as htmlToImage from 'html-to-image';
+// ⚠️ Removed the buggy vscDarkPlus import that was crashing Vite!
 
 // ==========================================
 // 🎨 PRO MESSAGE RENDERER
@@ -14,8 +13,9 @@ import * as htmlToImage from 'html-to-image';
 const RenderMessage = ({ content = "" }) => {
   const [copiedCode, setCopiedCode] = useState(null);
 
-  // Safety net: ensure content is always a string to prevent .includes crash
-  const safeContent = content || "";
+  // Ultimate safety net to prevent string-parsing crashes
+  const safeContent = typeof content === 'string' ? content : String(content || "");
+  
   const hasWebSearch = safeContent.includes("*(🌐 Scanning the live web...)*");
   const hasGithub = safeContent.includes("*(🐙 Cloning GitHub Repository...)*");
   const hasVisualIntel = safeContent.includes("[VISUAL DATA FROM IMAGE");
@@ -59,7 +59,8 @@ const RenderMessage = ({ content = "" }) => {
                     {copiedCode === codeString ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <span className="text-[11px]">Copy</span>}
                   </button>
                 </div>
-                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" customStyle={{ margin: 0, padding: '1rem', backgroundColor: 'transparent' }} {...props}>
+                {/* ⚠️ Removed the style prop to fall back to the safe default theme */}
+                <SyntaxHighlighter language={match[1]} PreTag="div" customStyle={{ margin: 0, padding: '1rem', backgroundColor: 'transparent' }} {...props}>
                   {codeString}
                 </SyntaxHighlighter>
               </div>
@@ -113,9 +114,9 @@ const ImageWidgetNode = ({ id, data }) => {
       </div>
       {!isCollapsed && (
         <div className="p-4 nodrag">
-            {data.isLoading ? (
+            {data?.isLoading ? (
               <div className="w-full aspect-square bg-zinc-950 rounded-xl flex items-center justify-center border border-dashed border-white/5 gap-2"><Brain className="w-8 h-8 text-zinc-700 animate-pulse" /><span className="text-zinc-500 text-xs font-mono animate-pulse">Generating...</span></div>
-            ) : (<img src={data.image_url} alt="Generated" className="w-full aspect-square rounded-xl object-cover pointer-events-none" />)}
+            ) : (<img src={data?.image_url} alt="Generated" className="w-full aspect-square rounded-xl object-cover pointer-events-none" />)}
         </div>
       )}
       <Handle type="source" position={Position.Bottom} className={handleStyle} />
@@ -140,7 +141,7 @@ const TerminalWidgetNode = ({ id, data }) => {
         </div>
         <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
       </div>
-      {!isCollapsed && (<div className="p-4 text-emerald-400 text-xs whitespace-pre-wrap leading-relaxed max-h-[400px] overflow-y-auto custom-scrollbar nodrag select-text cursor-text">{data.output}<span className="ml-1 text-emerald-400 animate-pulse">_</span></div>)}
+      {!isCollapsed && (<div className="p-4 text-emerald-400 text-xs whitespace-pre-wrap leading-relaxed max-h-[400px] overflow-y-auto custom-scrollbar nodrag select-text cursor-text">{data?.output}<span className="ml-1 text-emerald-400 animate-pulse">_</span></div>)}
       <Handle type="source" position={Position.Bottom} className={handleStyle} />
     </div>
   );
@@ -151,12 +152,12 @@ const WebPreviewNode = ({ id, data }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [view, setView] = useState('preview');
-  const [liveCode, setLiveCode] = useState(data.htmlCode || ""); 
+  const [liveCode, setLiveCode] = useState(data?.htmlCode || ""); 
   const [copied, setCopied] = useState(false);
   
   useEffect(() => { updateNodeInternals(id); }, [isCollapsed, view, id, updateNodeInternals]);
   const deleteNode = () => { setNodes((nds) => nds.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); };
-  const handleCopy = () => { navigator.clipboard.writeText(data.htmlCode); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const handleCopy = () => { navigator.clipboard.writeText(data?.htmlCode || ""); setCopied(true); setTimeout(() => setCopied(false), 2000); };
 
   return (
     <div className="bg-zinc-950 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] flex flex-col overflow-hidden transition-all duration-300">
@@ -199,7 +200,7 @@ const TextNode = ({ id, data, isUser }) => {
          <div className="flex items-center gap-2 pr-4">{isUser ? <User className="w-4 h-4 opacity-50" /> : <Bot className="w-4 h-4 opacity-50" />}<span className="text-[10px] font-bold uppercase tracking-wider opacity-50">{isUser ? 'You' : 'Agent OS'}</span></div>
          <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
       </div>
-      {!isCollapsed && (<div className="p-5 text-sm leading-relaxed nodrag select-text cursor-text"><RenderMessage content={data.label} /></div>)}
+      {!isCollapsed && (<div className="p-5 text-sm leading-relaxed nodrag select-text cursor-text"><RenderMessage content={data?.label} /></div>)}
       {!isUser && <Handle type="source" position={Position.Bottom} className={handleStyle} />}
     </div>
   );
@@ -214,22 +215,6 @@ const nodeTypes = {
 };
 
 export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesChange, onConnect }) {
-  
-  // 📸 THE CANVAS EXPORT FUNCTION
-  const downloadCanvas = useCallback(() => {
-    const element = document.querySelector('.react-flow__viewport');
-    if (element) {
-      // Safe call using the asterisk import
-      htmlToImage.toPng(element, { backgroundColor: '#09090b', quality: 1.0, pixelRatio: 2 })
-        .then((dataUrl) => {
-          const a = document.createElement('a');
-          a.setAttribute('download', 'agent-os-architecture.png');
-          a.setAttribute('href', dataUrl);
-          a.click();
-        });
-    }
-  }, []);
-
   return (
     <div className="w-full h-full bg-[#09090b]">
       <ReactFlow 
@@ -238,14 +223,6 @@ export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesC
       >
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
-        
-        {/* 🌟 UPGRADE: Export Button Panel */}
-        <Panel position="top-right" className="mt-14 mr-4">
-           <button onClick={downloadCanvas} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-semibold shadow-xl border border-indigo-500/50 transition-all pointer-events-auto">
-             <Camera className="w-4 h-4" /> Export Canvas
-           </button>
-        </Panel>
-
         <MiniMap position="bottom-right" zoomable={true} pannable={true} nodeColor="#4f46e5" maskColor="rgba(0, 0, 0, 0.7)" style={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', marginBottom: '80px' }} />
       </ReactFlow>
     </div>
