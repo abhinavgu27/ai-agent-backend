@@ -146,9 +146,44 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
                 sys_prompt = "You are an expert frontend developer. Return ONLY valid HTML code. No markdown tags."
                 completion = groq_client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "system", "content": sys_prompt}, {"role": "user", "content": payload.message}], temperature=0.2)
                 dynamic_html = completion.choices[0].message.content.strip()
-                for prefix in ["```html", "```"]: 
-                    if dynamic_html.startswith(prefix): dynamic_html = dynamic_html[len(prefix):]
-                if dynamic_html.endswith("
-http://googleusercontent.com/immersive_entry_chip/0
+                
+                # Safely parse the markdown backticks out without triggering Python syntax errors
+                prefix1 = "```html"
+                prefix2 = "```"
+                
+                if dynamic_html.startswith(prefix1):
+                    dynamic_html = dynamic_html[len(prefix1):]
+                elif dynamic_html.startswith(prefix2):
+                    dynamic_html = dynamic_html[len(prefix2):]
+                    
+                if dynamic_html.endswith(prefix2):
+                    dynamic_html = dynamic_html[:-3]
+                
+                await asyncio.sleep(0.5) 
+                yield f"data: {json.dumps({'type': 'genui_event', 'widget_type': 'web_preview', 'htmlCode': dynamic_html.strip()})}\n\n"
+                await save_message(current_user, payload.session_id, "user", payload.message)
+                await save_message(current_user, payload.session_id, "assistant", f"Generated HTML code:\n```html\n{dynamic_html.strip()}\n```")
+            except Exception as e: yield f"data: {json.dumps({'token': f'⚠️ Error: {str(e)}'})}\n\n"
+            return
 
-Push this to GitHub, start a new workspace, and test out asking for the live weather or pasting a GitHub Repo URL. Then, click the new **Camera Icon** in the top right corner to instantly download your spatial flow map!
+        full_text = ""
+        for token in ask(combined_message, history):
+            if token:
+                full_text += token
+                yield f"data: {json.dumps({'token': token})}\n\n"
+            await asyncio.sleep(0.01)
+        
+        await save_message(current_user, payload.session_id, "user", payload.message)
+        await save_message(current_user, payload.session_id, "assistant", full_text)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+class AudioPayload(BaseModel): text: str
+@app.post("/speak")
+async def speak_endpoint(payload: AudioPayload, current_user: str = Depends(get_current_user)):
+    try: return StreamingResponse(generate_audio(payload.text.replace("*(🌐 Scanning the live web...)*\n\n", "")), media_type="audio/mpeg")
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
