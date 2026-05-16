@@ -74,7 +74,7 @@ export default function App() {
   
   const [input, setInput] = useState('');
   
-  // ⚡ MULTIPLAYER STATE UPGRADE
+  // ⚡ MULTIPLAYER STATE
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]); 
   const ws = useRef(null);
@@ -91,25 +91,53 @@ export default function App() {
 
   const textareaRef = useRef(null);
 
-  // --- 🔗 WEBSOCKET SYNC ENGINE ---
+  // --- 🔗 BULLETPROOF WEBSOCKET SYNC ENGINE ---
   useEffect(() => {
     if (!token) return;
-    const wsUrl = BACKEND_URL.replace(/^http/, 'ws') + `/ws/${currentSessionId}`;
-    ws.current = new WebSocket(wsUrl);
 
-    ws.current.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === 'nodes') {
-            setNodes((nds) => applyNodeChanges(data.changes, nds));
-        } else if (data.type === 'edges') {
-            setEdges((eds) => applyEdgeChanges(data.changes, eds));
-        } else if (data.type === 'full_sync') {
-            setNodes(data.nodes);
-            setEdges(data.edges);
-        }
+    let reconnectTimeout;
+    
+    const connectWs = () => {
+        const wsUrl = BACKEND_URL.replace(/^http/, 'ws') + `/ws/${currentSessionId}`;
+        console.log("⚡ [Agent OS] Attempting connection to:", wsUrl);
+        
+        ws.current = new WebSocket(wsUrl);
+
+        ws.current.onopen = () => {
+            console.log("🟢 [Agent OS] Multiplayer Link Connected!");
+        };
+
+        ws.current.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'nodes') {
+                setNodes((nds) => applyNodeChanges(data.changes, nds));
+            } else if (data.type === 'edges') {
+                setEdges((eds) => applyEdgeChanges(data.changes, eds));
+            } else if (data.type === 'full_sync') {
+                setNodes(data.nodes);
+                setEdges(data.edges);
+            }
+        };
+
+        ws.current.onerror = (error) => {
+            console.error("🔴 [Agent OS] Multiplayer Link Error:", error);
+        };
+
+        ws.current.onclose = () => {
+            console.log("⚪ [Agent OS] Connection dropped. Reconnecting in 3s...");
+            reconnectTimeout = setTimeout(connectWs, 3000);
+        };
     };
 
-    return () => ws.current?.close();
+    connectWs();
+
+    return () => {
+        clearTimeout(reconnectTimeout);
+        if (ws.current) {
+            ws.current.onclose = null; // Prevent reconnect loop when switching chats
+            ws.current.close();
+        }
+    };
   }, [currentSessionId, token]);
 
   const onNodesChange = useCallback((changes) => {
