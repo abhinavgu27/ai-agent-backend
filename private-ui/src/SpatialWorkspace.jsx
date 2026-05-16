@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-// ⚡ FIX: useReactFlow is actually imported this time!
 import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, useUpdateNodeInternals, Panel, MiniMap } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, LayoutGrid, Layers, Folder, Code2, Bug, PenTool } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, LayoutGrid, Layers, Folder, Code2, Bug, PenTool, Rocket, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -314,6 +313,7 @@ const TerminalWidgetNode = ({ id, data }) => {
   );
 };
 
+// ⚡ UPGRADED: WEB PREVIEW WITH VERCEL API PUBLISHER
 const WebPreviewNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
@@ -321,10 +321,42 @@ const WebPreviewNode = ({ id, data }) => {
   const [view, setView] = useState('preview');
   const [liveCode, setLiveCode] = useState(data?.htmlCode || ""); 
   const [copied, setCopied] = useState(false);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployedUrl, setDeployedUrl] = useState(null);
   
   useEffect(() => { updateNodeInternals(id); }, [isCollapsed, view, id, updateNodeInternals]);
   const deleteNode = () => { setNodes((nds) => nds.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); };
-  const handleCopy = () => { navigator.clipboard.writeText(data?.htmlCode || ""); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const handleCopy = () => { navigator.clipboard.writeText(liveCode); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+
+  // ⚡ VERCEL DEPLOYMENT LOGIC
+  const handleDeploy = async () => {
+    const vToken = localStorage.getItem('vercel_api_token') || prompt('Enter a Vercel API Token (Create one free at vercel.com/account/tokens):');
+    if (!vToken) return;
+    localStorage.setItem('vercel_api_token', vToken);
+    
+    setIsDeploying(true);
+    try {
+      const res = await fetch('https://api.vercel.com/v13/deployments', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${vToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'agent-os-artifact',
+          files: [{ file: 'index.html', data: liveCode }],
+          target: 'production'
+        })
+      });
+      const resData = await res.json();
+      if (resData.url) {
+         setDeployedUrl(`https://${resData.url}`);
+      } else {
+         alert('Deployment failed. Check your token or Vercel account limits.');
+      }
+    } catch (err) {
+      alert('Network error during deployment.');
+    } finally {
+      setIsDeploying(false);
+    }
+  };
 
   return (
     <div className="bg-zinc-950 rounded-2xl border border-white/10 shadow-2xl min-w-[500px] flex flex-col overflow-hidden transition-all duration-300">
@@ -338,7 +370,19 @@ const WebPreviewNode = ({ id, data }) => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleCopy} className="flex items-center gap-1.5 text-[10px] font-mono bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-1 rounded-md transition-colors nodrag">{copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}{copied ? "COPIED" : "COPY HTML"}</button>
+          {/* ⚡ NEW: DEPLOY BUTTON */}
+          {deployedUrl ? (
+            <a href={deployedUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-md transition-colors nodrag border border-emerald-500/30 hover:bg-emerald-500/30">
+               <ExternalLink className="w-3 h-3" /> LIVE
+            </a>
+          ) : (
+            <button onClick={handleDeploy} disabled={isDeploying} className="flex items-center gap-1.5 text-[10px] font-bold bg-white text-zinc-900 hover:bg-zinc-200 px-3 py-1 rounded-md transition-colors nodrag disabled:opacity-50">
+               {isDeploying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Rocket className="w-3 h-3" />}
+               {isDeploying ? "DEPLOYING" : "DEPLOY 🚀"}
+            </button>
+          )}
+
+          <button onClick={handleCopy} className="flex items-center gap-1.5 text-[10px] font-mono bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-1 rounded-md transition-colors nodrag">{copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}</button>
           <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
         </div>
       </div>

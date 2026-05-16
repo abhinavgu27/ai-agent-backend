@@ -5,7 +5,7 @@ import {
   Send, Loader2, Paperclip, X, Plus, 
   MessageSquare, LogOut, Lock, Check,
   Volume2, VolumeX, Sparkles, PanelLeftClose, PanelLeft, Users,
-  Mic, MicOff // ⚡ NEW: Audio icons
+  Mic, MicOff
 } from 'lucide-react';
 
 const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
@@ -94,7 +94,6 @@ export default function App() {
   const [voiceMode, setVoiceMode] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   
-  // ⚡ NEW: SPEECH TO TEXT STATE
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
 
@@ -135,7 +134,7 @@ export default function App() {
       recognitionRef.current?.stop();
       setIsListening(false);
     } else {
-      setInput(''); // Clear input when starting a new dictate session
+      setInput(''); 
       recognitionRef.current?.start();
       setIsListening(true);
     }
@@ -171,13 +170,17 @@ export default function App() {
     if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'edges', changes }));
   }, []);
 
-  // --- 🤖 MULTI-AGENT PIPELINE ENGINE ---
+  // --- 🤖 AUTO-HEALING PIPELINE ENGINE ---
   const runAgentPipeline = async (targetId, inputContext, role) => {
     setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'running', label: "" } } : n));
 
     let fullAiText = "";
     try {
-        const agentPrompt = `You are a specialized ${role}. Analyze the following input and provide your expert output. Do not break character.\n\nINPUT:\n${inputContext}`;
+        // ⚡ SPECIAL INSTRUCTION FOR QA TESTER TO ENABLE AUTO-HEALING
+        const agentPrompt = role === 'QA Tester' 
+            ? `You are a strict QA Tester. Review the code/input. If it contains bugs, errors, or fails edge cases, list them and end your response EXACTLY with [STATUS: REJECTED]. If the code is absolutely flawless, end your response EXACTLY with [STATUS: PASSED].\n\nINPUT:\n${inputContext}`
+            : `You are a specialized ${role}. Analyze the following input and provide your expert output. Do not break character.\n\nINPUT:\n${inputContext}`;
+
         const response = await fetch(`${BACKEND_URL}/chat`, { method: 'POST', headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ message: agentPrompt, session_id: currentSessionId }) });
         if(response.status === 401) { handleLogout(); return; }
 
@@ -220,6 +223,13 @@ export default function App() {
     } finally {
         setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'idle' } } : n));
         if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'full_sync', nodes: nodesRef.current, edges: edgesRef.current }));
+
+        // ⚡ LOOP HALTING LOGIC
+        if (role === 'QA Tester' && fullAiText.includes('[STATUS: PASSED]')) {
+            console.log("🟢 QA PASSED. Halting Auto-Healing Loop.");
+            setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, label: fullAiText + "\n\n🚀 **PIPELINE APPROVED & HALTED.**" } } : n));
+            return; // Stops downstream execution!
+        }
 
         setTimeout(() => {
             const downstreamEdges = edgesRef.current.filter(e => e.source === targetId);
@@ -403,7 +413,6 @@ export default function App() {
     if (!input.trim() || isTyping) return;
     window.speechSynthesis.cancel();
     
-    // ⚡ Stop listening when we send the message
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
@@ -646,7 +655,6 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                      {/* ⚡ NEW: MICROPHONE BUTTON */}
                       <button 
                         onClick={toggleListening} 
                         className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 ${isListening ? 'bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-100 border border-transparent'}`}
