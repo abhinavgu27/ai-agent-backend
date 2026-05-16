@@ -255,7 +255,7 @@ const nodeTypes = {
 };
 
 // ==========================================
-// 🕹️ THE AUTO-LAYOUT BUTTON WIDGET
+// 🕹️ THE AUTO-LAYOUT BUTTON WIDGET (MOVED!)
 // ==========================================
 const LayoutControls = ({ nodes, edges }) => {
   const { setNodes, fitView } = useReactFlow();
@@ -268,9 +268,10 @@ const LayoutControls = ({ nodes, edges }) => {
   }, [nodes, edges, setNodes, fitView]);
 
   return (
-    <Panel position="top-right" className="mt-14 mr-4">
-       <button onClick={onLayout} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-semibold shadow-xl border border-indigo-500/50 transition-all pointer-events-auto">
-         <Wand2 className="w-4 h-4" /> Auto-Organize
+    // ⬇️ Notice it is now bottom-left, hovering right above the input bar
+    <Panel position="bottom-left" className="mb-28 ml-[32px]">
+       <button onClick={onLayout} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-[0_0_30px_rgba(79,70,229,0.4)] border border-indigo-400/50 transition-all pointer-events-auto hover:scale-105 active:scale-95 group">
+         <Wand2 className="w-5 h-5 group-hover:rotate-12 transition-transform" /> Auto-Organize Map
        </button>
     </Panel>
   );

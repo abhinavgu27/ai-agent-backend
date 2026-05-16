@@ -3,7 +3,7 @@ import { useNodesState, useEdgesState, addEdge } from '@xyflow/react';
 import SpatialWorkspace from './SpatialWorkspace';
 import { 
   Send, Loader2, Paperclip, X, Plus, 
-  MessageSquare, LogOut, Lock,  
+  MessageSquare, LogOut, Lock, Check,
   Volume2, VolumeX, Sparkles, PanelLeftClose, PanelLeft
 } from 'lucide-react';
 
@@ -79,6 +79,7 @@ export default function App() {
   const lastYPosition = useRef(100);
   
   const [isTyping, setIsTyping] = useState(false);
+  const [isSaving, setIsSaving] = useState(false); // 💾 New Auto-Save Status
   const [activeFiles, setActiveFiles] = useState([]); 
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(Date.now().toString());
@@ -91,6 +92,29 @@ export default function App() {
   const onConnect = useCallback((connection) => {
     setEdges((eds) => addEdge({ ...connection, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } }, eds));
   }, [setEdges]);
+
+  // --- 💾 SPATIAL AUTO-SAVE ENGINE ---
+  useEffect(() => {
+    if (!token || nodes.length === 0) return;
+    setIsSaving(true);
+    
+    // Debounce the save so it only hits the database 1.5s after you finish moving nodes
+    const timer = setTimeout(async () => {
+      try {
+        await fetch(`${BACKEND_URL}/canvas/${currentSessionId}`, {
+          method: 'POST',
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ nodes, edges })
+        });
+        setIsSaving(false);
+      } catch(e) { 
+        console.error("Save failed:", e);
+        setIsSaving(false); 
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [nodes, edges, currentSessionId, token]);
 
   const handleAuth = async (e) => {
       e.preventDefault();
@@ -169,10 +193,29 @@ export default function App() {
   const loadSession = async (sessionId) => {
       setNodes([]); 
       setEdges([]);
-      lastYPosition.current = 100;
       setCurrentSessionId(sessionId);
       window.speechSynthesis.cancel();
+
+      try {
+          const res = await fetch(`${BACKEND_URL}/canvas/${sessionId}`, { headers: authHeaders });
+          if (res.ok) {
+              const data = await res.json();
+              if (data.nodes && data.nodes.length > 0) {
+                  setNodes(data.nodes);
+                  setEdges(data.edges);
+                  
+                  // Find the lowest node to set the next spawn position
+                  let maxY = 100;
+                  data.nodes.forEach(n => { if(n.position.y > maxY) maxY = n.position.y; });
+                  lastYPosition.current = maxY + 200;
+                  return;
+              }
+          }
+      } catch (err) { console.error("Failed to load canvas state", err); }
+
+      // Fallback if no canvas data exists for this session yet
       setNodes([{ id: 'init', type: 'assistant_response', position: { x: 400, y: 100 }, data: { label: '⚡ **Session Linked:** Spatial Memory ready.' } }]);
+      lastYPosition.current = 100;
   };
 
   useEffect(() => {
@@ -407,8 +450,13 @@ export default function App() {
                   className="w-full bg-transparent text-zinc-100 placeholder:text-zinc-500 resize-none outline-none max-h-48 custom-scrollbar leading-relaxed text-base" rows={1}
                 />
                 <div className="flex items-center justify-between pt-2 mt-1">
+                  {/* 💾 Added Saving Indicator Here */}
                   <div className="flex items-center gap-1">
                     <FileUploadButton onUploadSuccess={fetchFiles} currentSessionId={currentSessionId} token={token} />
+                    <div className={`text-[10px] font-medium px-2 flex items-center gap-1.5 transition-colors ${isSaving ? 'text-zinc-500' : 'text-emerald-500/70'}`}>
+                       {isSaving ? <Loader2 className="w-3 h-3 animate-spin"/> : <Check className="w-3 h-3" />}
+                       {isSaving ? "Saving Map..." : "Saved"}
+                    </div>
                   </div>
                   <button onClick={handleSend} disabled={isTyping || !input.trim()} className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 ${input.trim() && !isTyping ? 'bg-white text-zinc-950 shadow-md hover:bg-zinc-200' : 'bg-white/5 text-zinc-600 cursor-default'}`}>
                     <Send className="w-4 h-4 ml-0.5" />
