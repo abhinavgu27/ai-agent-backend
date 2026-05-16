@@ -21,7 +21,7 @@ from database import (
     create_user_in_db, get_user_from_db,
     save_message, get_history, get_all_sessions,
     save_file_context, get_all_file_context, get_uploaded_filenames, clear_session_knowledge,
-    save_canvas_state, get_canvas_state # <--- ADD THESE TWO
+    save_canvas_state, get_canvas_state
 )
 
 app = FastAPI()
@@ -148,7 +148,6 @@ async def chat_endpoint(payload: ChatPayload, current_user: str = Depends(get_cu
                 completion = groq_client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "system", "content": sys_prompt}, {"role": "user", "content": payload.message}], temperature=0.2)
                 dynamic_html = completion.choices[0].message.content.strip()
                 
-                # Safely parse the markdown backticks out without triggering Python syntax errors
                 prefix1 = "```html"
                 prefix2 = "```"
                 
@@ -202,7 +201,7 @@ async def load_canvas(session_id: str, current_user: str = Depends(get_current_u
     data = await get_canvas_state(current_user, session_id)
     if data:
         return data
-    return {"nodes": [], "edges": []}    
+    return {"nodes": [], "edges": []}
 
 if __name__ == "__main__":
     import uvicorn
