@@ -4,7 +4,8 @@ import SpatialWorkspace from './SpatialWorkspace';
 import { 
   Send, Loader2, Paperclip, X, Plus, 
   MessageSquare, LogOut, Lock, Check,
-  Volume2, VolumeX, Sparkles, PanelLeftClose, PanelLeft, Users
+  Volume2, VolumeX, Sparkles, PanelLeftClose, PanelLeft, Users,
+  Mic, MicOff // ⚡ NEW: Audio icons
 } from 'lucide-react';
 
 const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
@@ -89,11 +90,56 @@ export default function App() {
   const [activeFiles, setActiveFiles] = useState([]); 
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(Date.now().toString());
+  
   const [voiceMode, setVoiceMode] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isSidebarOpen, setSidebarOpen] = useState(true);
+  
+  // ⚡ NEW: SPEECH TO TEXT STATE
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
 
+  const [isSidebarOpen, setSidebarOpen] = useState(true);
   const textareaRef = useRef(null);
+
+  // --- 🎙️ NATIVE SPEECH RECOGNITION ENGINE ---
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+
+      recognitionRef.current.onresult = (event) => {
+        let currentTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+        setInput(currentTranscript);
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    } else {
+      console.warn("Speech Recognition API not supported in this browser.");
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    } else {
+      setInput(''); // Clear input when starting a new dictate session
+      recognitionRef.current?.start();
+      setIsListening(true);
+    }
+  };
 
   // --- 🔗 WEBSOCKET SYNC ENGINE ---
   useEffect(() => {
@@ -357,6 +403,12 @@ export default function App() {
     if (!input.trim() || isTyping) return;
     window.speechSynthesis.cancel();
     
+    // ⚡ Stop listening when we send the message
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
+    
     const currentInput = input;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -399,7 +451,6 @@ export default function App() {
                 const data = JSON.parse(jsonString);
                 
                 if (data.type === 'genui_event') {
-                   // ⚡ 1. THE GITHUB MAP SPAWNER
                    if (data.widget_type === 'github_map') {
                        const repoData = data.repo_data;
                        setNodes((nds) => {
@@ -410,7 +461,6 @@ export default function App() {
                            const rootX = rootNode ? rootNode.position.x : 400;
                            const rootY = rootNode ? rootNode.position.y : lastYPosition.current;
 
-                           // Spawn child nodes in a cool masonry grid beneath the root!
                            repoData.tree.forEach((item, idx) => {
                                const row = Math.floor(idx / 4);
                                const col = idx % 4;
@@ -430,7 +480,7 @@ export default function App() {
                                source: aiNodeId,
                                target: `ghfile-${Date.now()}-${idx}`,
                                animated: true,
-                               style: { stroke: '#10b981', strokeWidth: 2, strokeDasharray: '5,5' } // Emerald green wires!
+                               style: { stroke: '#10b981', strokeWidth: 2, strokeDasharray: '5,5' }
                            }));
                            return [...eds, ...newEdges];
                        });
@@ -595,9 +645,19 @@ export default function App() {
                        {isSaving ? "Saving Map..." : "Saved"}
                     </div>
                   </div>
-                  <button onClick={handleSend} disabled={isTyping || !input.trim()} className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 ${input.trim() && !isTyping ? 'bg-white text-zinc-950 shadow-md hover:bg-zinc-200' : 'bg-white/5 text-zinc-600 cursor-default'}`}>
-                    <Send className="w-4 h-4 ml-0.5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                      {/* ⚡ NEW: MICROPHONE BUTTON */}
+                      <button 
+                        onClick={toggleListening} 
+                        className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 ${isListening ? 'bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-100 border border-transparent'}`}
+                      >
+                        {isListening ? <MicOff className="w-4 h-4 animate-pulse" /> : <Mic className="w-4 h-4" />}
+                      </button>
+
+                      <button onClick={handleSend} disabled={isTyping || !input.trim()} className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 ${input.trim() && !isTyping ? 'bg-white text-zinc-950 shadow-md hover:bg-zinc-200' : 'bg-white/5 text-zinc-600 cursor-default'}`}>
+                        <Send className="w-4 h-4 ml-0.5" />
+                      </button>
+                  </div>
                 </div>
               </div>
             </div>
