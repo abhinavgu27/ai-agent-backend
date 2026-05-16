@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, MiniMap, useUpdateNodeInternals, Panel } from '@xyflow/react';
+import { ReactFlow, Background, Controls, Handle, Position, useUpdateNodeInternals, Panel, MiniMap } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Sparkles, Brain, Bot, User, Terminal, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, LayoutGrid, Layers, Folder, Code2, Bug, PenTool } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -22,14 +22,20 @@ const getLayoutedElements = (nodes) => {
   const hiddenNodes = nodes.filter(n => n.hidden);
 
   const pairs = {};
+  const floatingNodes = [];
+
   visibleNodes.forEach(node => {
-    if (node.type === 'folder_node' || node.type === 'persona_agent') {
+    // We let the GitHub files float exactly where they spawned so the tree isn't destroyed
+    if (node.type === 'github_file') {
+        floatingNodes.push(node);
+    } else if (node.type === 'folder_node' || node.type === 'persona_agent') {
       pairs[node.id] = { standalone: node };
     } else {
       const timeId = node.id.split('-')[1]; 
+      if (!timeId) { floatingNodes.push(node); return; }
       if (!pairs[timeId]) pairs[timeId] = {};
       if (node.type === 'user_input') pairs[timeId].user = node;
-      else pairs[timeId].ai = node;
+      else pairs[timeId].ai = node; // github_repo replaces the AI node, so it slots in perfectly!
     }
   });
 
@@ -74,7 +80,7 @@ const getLayoutedElements = (nodes) => {
     }
   });
 
-  return [...layoutedVisible, ...hiddenNodes];
+  return [...layoutedVisible, ...hiddenNodes, ...floatingNodes];
 };
 
 // ==========================================
@@ -83,24 +89,11 @@ const getLayoutedElements = (nodes) => {
 const RenderMessage = ({ content = "" }) => {
   const [copiedCode, setCopiedCode] = useState(null);
   const safeContent = typeof content === 'string' ? content : String(content || "");
-  
-  const hasWebSearch = safeContent.includes("*(🌐 Scanning the live web...)*");
-  const hasGithub = safeContent.includes("*(🐙 Cloning GitHub Repository...)*");
-  const hasVisualIntel = safeContent.includes("[VISUAL DATA FROM IMAGE");
-
-  const cleanContent = safeContent
-    .replace("*(🌐 Scanning the live web...)*\n\n", "")
-    .replace("*(🐙 Cloning GitHub Repository...)*\n\n", "")
-    .replace(/\[VISUAL DATA FROM IMAGE .*?\]: /, "👁️ **Visual Intel Acquired:** ");
-
+  const cleanContent = safeContent.replace("*(🌐 Scanning the live web...)*\n\n", "").replace("*(🐙 Cloning GitHub Repository...)*\n\n", "").replace(/\[VISUAL DATA FROM IMAGE .*?\]: /, "👁️ **Visual Intel Acquired:** ");
   const handleCopy = (text) => { navigator.clipboard.writeText(text); setCopiedCode(text); setTimeout(() => setCopiedCode(null), 2000); };
 
   return (
     <div className="flex flex-col gap-3 w-full leading-relaxed text-zinc-200">
-      {hasWebSearch && <div className="flex items-center gap-2 text-emerald-400 text-xs font-medium px-3 py-1.5 bg-emerald-400/10 rounded-lg w-fit border border-emerald-400/20 animate-pulse"><Globe className="w-4 h-4 animate-spin-slow" /> Gathering live intel from the web...</div>}
-      {hasGithub && <div className="flex items-center gap-2 text-purple-400 text-xs font-medium px-3 py-1.5 bg-purple-400/10 rounded-lg w-fit border border-purple-400/20 animate-pulse"><GithubIcon className="w-4 h-4" /> Analyzing GitHub Repository...</div>}
-      {hasVisualIntel && <div className="flex items-center gap-2 text-indigo-400 text-xs font-medium px-3 py-1.5 bg-indigo-400/10 rounded-lg w-fit border border-indigo-400/20 mb-2"><Bot className="w-4 h-4" /> Image Analysis Complete</div>}
-      
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -119,11 +112,7 @@ const RenderMessage = ({ content = "" }) => {
               </div>
             ) : (<code className="bg-white/10 text-indigo-300 px-1.5 py-0.5 rounded-md font-mono text-sm" {...props}>{children}</code>)
           },
-          table({children}) { return <div className="overflow-x-auto my-4"><table className="w-full text-sm text-left border-collapse border border-white/10">{children}</table></div> },
-          th({children}) { return <th className="px-4 py-3 bg-white/5 border-b border-white/10 font-semibold">{children}</th> },
-          td({children}) { return <td className="px-4 py-3 border-b border-white/5">{children}</td> },
           p({children}) { return <p className="mb-4 last:mb-0">{children}</p> },
-          ul({children}) { return <ul className="list-disc list-inside mb-4 space-y-1">{children}</ul> },
         }}
       >
         {cleanContent}
@@ -142,7 +131,52 @@ const WindowControls = ({ isCollapsed, setIsCollapsed, onDelete }) => (
 const handleStyle = "w-3 h-3 bg-indigo-500 border-2 border-zinc-950 opacity-30 hover:opacity-100 transition-opacity cursor-crosshair";
 
 // ==========================================
-// 🤖 NEW: SPECIALIZED PERSONA NODE
+// 🐙 NEW: GITHUB WIDGETS
+// ==========================================
+const GithubRepoNode = ({ id, data }) => {
+  const { setNodes, setEdges } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  useEffect(() => { updateNodeInternals(id); }, [isCollapsed, id, updateNodeInternals]);
+  const deleteNode = () => { setNodes((nds) => nds.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); };
+
+  return (
+    <div className="bg-zinc-950 rounded-2xl border border-emerald-500/30 shadow-2xl min-w-[300px] flex flex-col overflow-hidden transition-all duration-300">
+      <Handle type="target" position={Position.Top} className={handleStyle} />
+      <div className="flex items-center justify-between p-3 bg-emerald-500/10 border-b border-emerald-500/20 cursor-grab active:cursor-grabbing">
+        <div className="flex items-center gap-2">
+          <GithubIcon className="w-5 h-5 text-emerald-400" />
+          <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">GitHub Architecture</span>
+        </div>
+        <WindowControls isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} onDelete={deleteNode} />
+      </div>
+      {!isCollapsed && (
+        <div className="p-5 flex flex-col items-center justify-center gap-2 nodrag">
+           <div className="text-lg font-bold text-white">{data.repo?.owner} / <span className="text-emerald-400">{data.repo?.repo}</span></div>
+           <div className="text-xs text-zinc-500">Repository Map Generated</div>
+        </div>
+      )}
+      <Handle type="source" position={Position.Bottom} className={handleStyle} />
+    </div>
+  );
+};
+
+const GithubFileNode = ({ id, data }) => {
+  return (
+    <div className="bg-zinc-900 border border-white/10 rounded-xl p-3 shadow-lg flex items-center gap-3 min-w-[150px] cursor-grab hover:border-emerald-500/30 transition-colors">
+      <Handle type="target" position={Position.Top} className={handleStyle} />
+      {data.fileType === 'dir' ? <Folder className="w-5 h-5 text-indigo-400" /> : <Code2 className="w-5 h-5 text-zinc-400" />}
+      <div className="flex flex-col">
+        <span className="text-xs font-semibold text-zinc-200 truncate max-w-[120px]" title={data.name}>{data.name}</span>
+        <span className="text-[9px] text-zinc-500 uppercase tracking-wider">{data.fileType}</span>
+      </div>
+      <Handle type="source" position={Position.Bottom} className={handleStyle} />
+    </div>
+  );
+};
+
+// ==========================================
+// 🤖 PERSONA NODE
 // ==========================================
 const PersonaNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
@@ -318,7 +352,7 @@ const TextNode = ({ id, data, isUser }) => {
   );
 };
 
-// ⚡ COMPLETELY RESTORED NODE TYPES
+// ⚡ ALL NODES REGISTERED
 const nodeTypes = {
   user_input: (props) => <TextNode {...props} isUser={true} />,
   assistant_response: (props) => <TextNode {...props} isUser={false} />,
@@ -327,6 +361,8 @@ const nodeTypes = {
   assistant_genui_preview: WebPreviewNode,
   folder_node: FolderNode, 
   persona_agent: PersonaNode,
+  github_repo: GithubRepoNode,
+  github_file: GithubFileNode,
 };
 
 // ==========================================
@@ -372,7 +408,7 @@ const LayoutControls = ({ nodes }) => {
 };
 
 // ==========================================
-// 👥 NEW: THE DRAG-AND-DROP AGENT ROSTER
+// 👥 DRAG-AND-DROP AGENT ROSTER
 // ==========================================
 const AgentRoster = () => {
     const onDragStart = (event, nodeType, role) => {
@@ -388,17 +424,14 @@ const AgentRoster = () => {
                  <Bot className="w-3.5 h-3.5" /> Agent Roster
              </div>
              <div className="text-[10px] text-zinc-500 mb-1">Drag agents onto the canvas</div>
-             
              <div onDragStart={(e) => onDragStart(e, 'persona_agent', 'Lead Developer')} draggable className="flex items-center gap-3 p-3 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-xl cursor-grab active:cursor-grabbing transition-colors group">
                  <Code2 className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
                  <span className="text-xs font-semibold text-emerald-100">Lead Developer</span>
              </div>
-             
              <div onDragStart={(e) => onDragStart(e, 'persona_agent', 'QA Tester')} draggable className="flex items-center gap-3 p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl cursor-grab active:cursor-grabbing transition-colors group">
                  <Bug className="w-4 h-4 text-red-400 group-hover:scale-110 transition-transform" />
                  <span className="text-xs font-semibold text-red-100">QA Tester</span>
              </div>
-             
              <div onDragStart={(e) => onDragStart(e, 'persona_agent', 'UI Designer')} draggable className="flex items-center gap-3 p-3 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/20 rounded-xl cursor-grab active:cursor-grabbing transition-colors group">
                  <PenTool className="w-4 h-4 text-pink-400 group-hover:scale-110 transition-transform" />
                  <span className="text-xs font-semibold text-pink-100">UI Designer</span>
@@ -445,7 +478,7 @@ export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesC
       >
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
-        <LayoutControls nodes={nodes} />
+        <LayoutControls nodes={nodes} setNodes={setNodes} fitView={() => {}} getNodes={() => nodes} />
         <AgentRoster />
         <MiniMap position="bottom-right" zoomable={true} pannable={true} nodeColor="#4f46e5" maskColor="rgba(0, 0, 0, 0.7)" style={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', marginBottom: '80px' }} />
       </ReactFlow>

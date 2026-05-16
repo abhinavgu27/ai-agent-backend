@@ -78,7 +78,6 @@ export default function App() {
   const [edges, setEdges] = useState([]); 
   const ws = useRef(null);
 
-  // ⚡ REFS FOR PIPELINE SYNC
   const nodesRef = useRef([]);
   const edgesRef = useRef([]);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
@@ -126,20 +125,14 @@ export default function App() {
     if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'edges', changes }));
   }, []);
 
-  // --- 🤖 THE MULTI-AGENT PIPELINE ENGINE (NOW SUPPORTS GEN-UI!) ---
+  // --- 🤖 MULTI-AGENT PIPELINE ENGINE ---
   const runAgentPipeline = async (targetId, inputContext, role) => {
     setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'running', label: "" } } : n));
 
     let fullAiText = "";
     try {
         const agentPrompt = `You are a specialized ${role}. Analyze the following input and provide your expert output. Do not break character.\n\nINPUT:\n${inputContext}`;
-
-        const response = await fetch(`${BACKEND_URL}/chat`, {
-            method: 'POST',
-            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ message: agentPrompt, session_id: currentSessionId })
-        });
-
+        const response = await fetch(`${BACKEND_URL}/chat`, { method: 'POST', headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ message: agentPrompt, session_id: currentSessionId }) });
         if(response.status === 401) { handleLogout(); return; }
 
         const reader = response.body.getReader();
@@ -149,7 +142,6 @@ export default function App() {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split("\n\n");
             buffer = lines.pop();
@@ -160,18 +152,11 @@ export default function App() {
                         const jsonString = line.substring(6);
                         const data = JSON.parse(jsonString);
 
-                        // If the agent decides to build a UI widget, transform the node!
                         if (data.type === 'genui_event') {
-                            if (data.widget_type === 'image_generated') {
-                                setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_image', data: { ...node.data, image_url: data.image_url, isLoading: false } } : node));
-                            } else if (data.widget_type === 'terminal_output') {
-                                setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_terminal', data: { ...node.data, output: data.output } } : node));
-                            } else if (data.widget_type === 'web_preview') {
-                                setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_preview', data: { ...node.data, htmlCode: data.htmlCode } } : node));
-                            }
-                        } 
-                        // Otherwise, it's just normal text talking
-                        else if (data.token) {
+                            if (data.widget_type === 'image_generated') setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_image', data: { ...node.data, image_url: data.image_url, isLoading: false } } : node));
+                            else if (data.widget_type === 'terminal_output') setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_terminal', data: { ...node.data, output: data.output } } : node));
+                            else if (data.widget_type === 'web_preview') setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_preview', data: { ...node.data, htmlCode: data.htmlCode } } : node));
+                        } else if (data.token) {
                             fullAiText += data.token;
                             setNodes(nds => nds.map(node => {
                                 if (node.id === targetId && !['assistant_genui_image', 'assistant_genui_terminal', 'assistant_genui_preview'].includes(node.type)) {
@@ -188,17 +173,13 @@ export default function App() {
         setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'idle', label: "⚠️ Pipeline execution failed." } } : n));
     } finally {
         setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'idle' } } : n));
-
-        if (ws.current?.readyState === WebSocket.OPEN) {
-            ws.current.send(JSON.stringify({ type: 'full_sync', nodes: nodesRef.current, edges: edgesRef.current }));
-        }
+        if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'full_sync', nodes: nodesRef.current, edges: edgesRef.current }));
 
         setTimeout(() => {
             const downstreamEdges = edgesRef.current.filter(e => e.source === targetId);
             downstreamEdges.forEach(edge => {
                 const nextNode = nodesRef.current.find(n => n.id === edge.target);
                 if (nextNode && nextNode.type === 'persona_agent') {
-                    // Pass whatever the node's final output was (text or HTML) to the next agent!
                     const outputToPass = nextNode.data.htmlCode || nextNode.data.output || fullAiText;
                     runAgentPipeline(nextNode.id, outputToPass, nextNode.data.role);
                 }
@@ -220,9 +201,7 @@ export default function App() {
 
     if (sourceNode && targetNode && targetNode.type === 'persona_agent') {
         const textToProcess = sourceNode.data?.htmlCode || sourceNode.data?.output || sourceNode.data?.label || "";
-        if (textToProcess) {
-            runAgentPipeline(targetNode.id, textToProcess, targetNode.data.role);
-        }
+        if (textToProcess) runAgentPipeline(targetNode.id, textToProcess, targetNode.data.role);
     }
   }, []);
 
@@ -292,7 +271,6 @@ export default function App() {
   };
 
   useEffect(() => { if (token) { fetchSessions(); fetchFiles(); } }, [token, currentSessionId]);
-
   const authHeaders = { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
 
   const fetchFiles = async () => {
@@ -363,7 +341,7 @@ export default function App() {
   const playAudio = (text) => {
       if (!voiceMode) return;
       window.speechSynthesis.cancel();
-      const cleanText = text.replace(/\*\(🌐 Scanning the live web...\)\*\n\n/g, "");
+      const cleanText = text.replace(/\*\(🌐 Scanning the live web...\)\*\n\n/g, "").replace(/\*\(🐙 Cloning GitHub Repository...\)\*\n\n/g, "");
       const utterance = new SpeechSynthesisUtterance(cleanText);
       const voices = window.speechSynthesis.getVoices();
       const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.lang === "en-US");
@@ -421,13 +399,49 @@ export default function App() {
                 const data = JSON.parse(jsonString);
                 
                 if (data.type === 'genui_event') {
-                   if (data.widget_type === 'image_generated') setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_image', data: { image_url: data.image_url, isLoading: false } } : node));
+                   // ⚡ 1. THE GITHUB MAP SPAWNER
+                   if (data.widget_type === 'github_map') {
+                       const repoData = data.repo_data;
+                       setNodes((nds) => {
+                           const rootNode = nds.find(n => n.id === aiNodeId);
+                           const updatedNds = nds.map((node) => node.id === aiNodeId ? { ...node, type: 'github_repo', data: { ...node.data, repo: repoData } } : node);
+                           
+                           const newNodes = [];
+                           const rootX = rootNode ? rootNode.position.x : 400;
+                           const rootY = rootNode ? rootNode.position.y : lastYPosition.current;
+
+                           // Spawn child nodes in a cool masonry grid beneath the root!
+                           repoData.tree.forEach((item, idx) => {
+                               const row = Math.floor(idx / 4);
+                               const col = idx % 4;
+                               newNodes.push({
+                                   id: `ghfile-${Date.now()}-${idx}`,
+                                   type: 'github_file',
+                                   position: { x: rootX - 250 + (col * 180), y: rootY + 200 + (row * 100) },
+                                   data: { name: item.name, fileType: item.type, url: item.url }
+                               });
+                           });
+                           return [...updatedNds, ...newNodes];
+                       });
+
+                       setEdges((eds) => {
+                           const newEdges = repoData.tree.map((item, idx) => ({
+                               id: `edge-gh-${Date.now()}-${idx}`,
+                               source: aiNodeId,
+                               target: `ghfile-${Date.now()}-${idx}`,
+                               animated: true,
+                               style: { stroke: '#10b981', strokeWidth: 2, strokeDasharray: '5,5' } // Emerald green wires!
+                           }));
+                           return [...eds, ...newEdges];
+                       });
+                   }
+                   else if (data.widget_type === 'image_generated') setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_image', data: { image_url: data.image_url, isLoading: false } } : node));
                    else if (data.widget_type === 'terminal_output') setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_terminal', data: { output: data.output } } : node));
                    else if (data.widget_type === 'web_preview') setNodes((nds) => nds.map((node) => node.id === aiNodeId ? { ...node, type: 'assistant_genui_preview', data: { htmlCode: data.htmlCode } } : node));
                 } else if (data.token) {
                    fullAiText += data.token;
                    setNodes((nds) => nds.map((node) => {
-                       if (node.id === aiNodeId && !['assistant_genui_image', 'assistant_genui_terminal', 'assistant_genui_preview'].includes(node.type)) {
+                       if (node.id === aiNodeId && !['assistant_genui_image', 'assistant_genui_terminal', 'assistant_genui_preview', 'github_repo'].includes(node.type)) {
                            return { ...node, data: { ...node.data, label: fullAiText } };
                        }
                        return node;
@@ -531,6 +545,7 @@ export default function App() {
              <button onClick={handleShare} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                <Users className="w-3.5 h-3.5" /> Invite to Canvas
              </button>
+
              <button onClick={() => { setVoiceMode(!voiceMode); window.speechSynthesis.cancel(); }} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voiceMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}>
                {voiceMode ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
                Voice Mode
