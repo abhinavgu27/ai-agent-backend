@@ -1,90 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useNodesState, useEdgesState, addEdge } from '@xyflow/react';
 import SpatialWorkspace from './SpatialWorkspace';
 import { 
-  Send, Bot, User, Loader2, Paperclip, X, Plus, 
-  MessageSquare, LogOut, Lock, Check, Globe, 
-  Volume2, VolumeX, Sparkles, PanelLeftClose, PanelLeft, Settings
+  Send, Loader2, Paperclip, X, Plus, 
+  MessageSquare, LogOut, Lock,  
+  Volume2, VolumeX, Sparkles, PanelLeftClose, PanelLeft
 } from 'lucide-react';
 
 const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
-
-// ==========================================
-// 🎨 PRO MESSAGE RENDERER
-// ==========================================
-export const RenderMessage = ({ content }) => {
-  const [copiedCode, setCopiedCode] = useState(null);
-
-  const hasWebSearch = content.includes("*(🌐 Scanning the live web...)*");
-  const hasVisualIntel = content.includes("[VISUAL DATA FROM IMAGE");
-  
-  const cleanContent = content
-    .replace("*(🌐 Scanning the live web...)*\n\n", "")
-    .replace(/\[VISUAL DATA FROM IMAGE .*?\]: /, "👁️ **Visual Intel Acquired:** ");
-
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopiedCode(text);
-    setTimeout(() => setCopiedCode(null), 2000);
-  };
-
-  return (
-    <div className="flex flex-col gap-3 w-full leading-relaxed text-zinc-200">
-      {hasWebSearch && (
-        <div className="flex items-center gap-2 text-emerald-400 text-xs font-medium px-3 py-1.5 bg-emerald-400/10 rounded-lg w-fit border border-emerald-400/20 animate-pulse">
-          <Globe className="w-4 h-4 animate-spin-slow" />
-          Gathering live intel from the web...
-        </div>
-      )}
-
-      {hasVisualIntel && (
-        <div className="flex items-center gap-2 text-indigo-400 text-xs font-medium px-3 py-1.5 bg-indigo-400/10 rounded-lg w-fit border border-indigo-400/20 mb-2">
-          <Bot className="w-4 h-4" />
-          Image Analysis Complete
-        </div>
-      )}
-      
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          code({node, inline, className, children, ...props}) {
-            const match = /language-(\w+)/.exec(className || '')
-            const codeString = String(children).replace(/\n$/, '');
-            return !inline && match ? (
-              <div className="relative my-4 rounded-xl overflow-hidden border border-white/10 shadow-lg bg-[#0d0d0d]">
-                <div className="flex justify-between items-center bg-zinc-900 px-4 py-2 text-xs text-zinc-400 border-b border-white/5">
-                  <span className="font-mono uppercase tracking-wider">{match[1]}</span>
-                  <button onClick={() => handleCopy(codeString)} className="flex items-center gap-1.5 hover:text-zinc-100 transition-colors">
-                    {copiedCode === codeString ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <span className="text-[11px]">Copy</span>}
-                  </button>
-                </div>
-                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="div" customStyle={{ margin: 0, padding: '1rem', backgroundColor: 'transparent' }} {...props}>
-                  {codeString}
-                </SyntaxHighlighter>
-              </div>
-            ) : (
-              <code className="bg-white/10 text-indigo-300 px-1.5 py-0.5 rounded-md font-mono text-sm" {...props}>
-                {children}
-            </code>
-            )
-          },
-          table({children}) { return <div className="overflow-x-auto my-4"><table className="w-full text-sm text-left border-collapse border border-white/10">{children}</table></div> },
-          th({children}) { return <th className="px-4 py-3 bg-white/5 border-b border-white/10 font-semibold">{children}</th> },
-          td({children}) { return <td className="px-4 py-3 border-b border-white/5">{children}</td> },
-          p({children}) { return <p className="mb-4 last:mb-0">{children}</p> },
-          ul({children}) { return <ul className="list-disc list-inside mb-4 space-y-1">{children}</ul> },
-          ol({children}) { return <ol className="list-decimal list-inside mb-4 space-y-1">{children}</ol> },
-        }}
-      >
-        {cleanContent}
-      </ReactMarkdown>
-    </div>
-  );
-};
 
 // ==========================================
 // 📂 FILE UPLOAD COMPONENT
@@ -165,12 +88,10 @@ export default function App() {
 
   const textareaRef = useRef(null);
 
-  // --- MANUAL MIND-MAP CONNECTING ---
   const onConnect = useCallback((connection) => {
     setEdges((eds) => addEdge({ ...connection, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } }, eds));
   }, [setEdges]);
 
-  // --- Auth Logic ---
   const handleAuth = async (e) => {
       e.preventDefault();
       setIsAuthenticating(true);
@@ -452,7 +373,6 @@ export default function App() {
           </button>
         </header>
 
-        {/* --- THE SPATIAL CANVAS WIDGET (WITH MANUAL LINKING) --- */}
         <div className="flex-1 w-full h-full relative z-0">
            <SpatialWorkspace 
               nodes={nodes} 

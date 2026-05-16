@@ -6,19 +6,21 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { toPng } from 'html-to-image';
+import * as htmlToImage from 'html-to-image';
 
 // ==========================================
 // 🎨 PRO MESSAGE RENDERER
 // ==========================================
-const RenderMessage = ({ content }) => {
+const RenderMessage = ({ content = "" }) => {
   const [copiedCode, setCopiedCode] = useState(null);
 
-  const hasWebSearch = content.includes("*(🌐 Scanning the live web...)*");
-  const hasGithub = content.includes("*(🐙 Cloning GitHub Repository...)*");
-  const hasVisualIntel = content.includes("[VISUAL DATA FROM IMAGE");
+  // Safety net: ensure content is always a string to prevent .includes crash
+  const safeContent = content || "";
+  const hasWebSearch = safeContent.includes("*(🌐 Scanning the live web...)*");
+  const hasGithub = safeContent.includes("*(🐙 Cloning GitHub Repository...)*");
+  const hasVisualIntel = safeContent.includes("[VISUAL DATA FROM IMAGE");
 
-  const cleanContent = content
+  const cleanContent = safeContent
     .replace("*(🌐 Scanning the live web...)*\n\n", "")
     .replace("*(🐙 Cloning GitHub Repository...)*\n\n", "")
     .replace(/\[VISUAL DATA FROM IMAGE .*?\]: /, "👁️ **Visual Intel Acquired:** ");
@@ -217,7 +219,8 @@ export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesC
   const downloadCanvas = useCallback(() => {
     const element = document.querySelector('.react-flow__viewport');
     if (element) {
-      toPng(element, { backgroundColor: '#09090b', quality: 1.0, pixelRatio: 2 })
+      // Safe call using the asterisk import
+      htmlToImage.toPng(element, { backgroundColor: '#09090b', quality: 1.0, pixelRatio: 2 })
         .then((dataUrl) => {
           const a = document.createElement('a');
           a.setAttribute('download', 'agent-os-architecture.png');
