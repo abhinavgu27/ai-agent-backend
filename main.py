@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +15,6 @@ import base64
 import urllib.parse 
 from groq import Groq 
 
-# Import vision analysis along with existing functions
 from brain import ask, generate_audio, analyze_image
 from database import (
     create_user_in_db, get_user_from_db,
@@ -202,6 +201,48 @@ async def load_canvas(session_id: str, current_user: str = Depends(get_current_u
     if data:
         return data
     return {"nodes": [], "edges": []}
+
+
+# ==========================================
+# ⚡ MULTIPLAYER WEBSOCKET HUB (NEW)
+# ==========================================
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, session_id: str):
+        await websocket.accept()
+        if session_id not in self.active_connections:
+            self.active_connections[session_id] = []
+        self.active_connections[session_id].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, session_id: str):
+        if session_id in self.active_connections:
+            if websocket in self.active_connections[session_id]:
+                self.active_connections[session_id].remove(websocket)
+            if not self.active_connections[session_id]:
+                del self.active_connections[session_id]
+
+    async def broadcast(self, message: str, session_id: str, sender: WebSocket):
+        if session_id in self.active_connections:
+            for connection in self.active_connections[session_id]:
+                if connection != sender:
+                    try:
+                        await connection.send_text(message)
+                    except:
+                        pass
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    await manager.connect(websocket, session_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await manager.broadcast(data, session_id, websocket)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, session_id)
 
 if __name__ == "__main__":
     import uvicorn

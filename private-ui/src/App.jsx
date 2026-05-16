@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNodesState, useEdgesState, addEdge } from '@xyflow/react';
+import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react';
 import SpatialWorkspace from './SpatialWorkspace';
 import { 
   Send, Loader2, Paperclip, X, Plus, 
   MessageSquare, LogOut, Lock, Check,
-  Volume2, VolumeX, Sparkles, PanelLeftClose, PanelLeft
+  Volume2, VolumeX, Sparkles, PanelLeftClose, PanelLeft, Users
 } from 'lucide-react';
 
 const BACKEND_URL = "https://ai-agent-backend-cmda.onrender.com";
@@ -74,12 +74,14 @@ export default function App() {
   
   const [input, setInput] = useState('');
   
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]); 
+  // ⚡ MULTIPLAYER STATE UPGRADE
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]); 
+  const ws = useRef(null);
+
   const lastYPosition = useRef(100);
-  
   const [isTyping, setIsTyping] = useState(false);
-  const [isSaving, setIsSaving] = useState(false); // 💾 New Auto-Save Status
+  const [isSaving, setIsSaving] = useState(false); 
   const [activeFiles, setActiveFiles] = useState([]); 
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(Date.now().toString());
@@ -89,16 +91,73 @@ export default function App() {
 
   const textareaRef = useRef(null);
 
+  // --- 🔗 WEBSOCKET SYNC ENGINE ---
+  useEffect(() => {
+    if (!token) return;
+    const wsUrl = BACKEND_URL.replace(/^http/, 'ws') + `/ws/${currentSessionId}`;
+    ws.current = new WebSocket(wsUrl);
+
+    ws.current.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'nodes') {
+            setNodes((nds) => applyNodeChanges(data.changes, nds));
+        } else if (data.type === 'edges') {
+            setEdges((eds) => applyEdgeChanges(data.changes, eds));
+        } else if (data.type === 'full_sync') {
+            setNodes(data.nodes);
+            setEdges(data.edges);
+        }
+    };
+
+    return () => ws.current?.close();
+  }, [currentSessionId, token]);
+
+  const onNodesChange = useCallback((changes) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+    if (ws.current?.readyState === WebSocket.OPEN) {
+        ws.current.send(JSON.stringify({ type: 'nodes', changes }));
+    }
+  }, []);
+
+  const onEdgesChange = useCallback((changes) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+    if (ws.current?.readyState === WebSocket.OPEN) {
+        ws.current.send(JSON.stringify({ type: 'edges', changes }));
+    }
+  }, []);
+
   const onConnect = useCallback((connection) => {
-    setEdges((eds) => addEdge({ ...connection, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } }, eds));
-  }, [setEdges]);
+    const newEdge = { ...connection, animated: true, style: { stroke: '#818cf8', strokeWidth: 2 } };
+    setEdges((eds) => {
+      const updated = addEdge(newEdge, eds);
+      if (ws.current?.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({ type: 'full_sync', nodes, edges: updated }));
+      }
+      return updated;
+    });
+  }, [nodes]);
+
+  // --- 📩 INVITATION LINK HANDLER ---
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const workspaceId = urlParams.get('workspace');
+    if (workspaceId && token) {
+        loadSession(workspaceId);
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [token]);
+
+  const handleShare = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('workspace', currentSessionId);
+    navigator.clipboard.writeText(url.toString());
+    alert("🔗 Co-Op Link Copied! Send this to your teammate to join your canvas.");
+  };
 
   // --- 💾 SPATIAL AUTO-SAVE ENGINE ---
   useEffect(() => {
     if (!token || nodes.length === 0) return;
     setIsSaving(true);
-    
-    // Debounce the save so it only hits the database 1.5s after you finish moving nodes
     const timer = setTimeout(async () => {
       try {
         await fetch(`${BACKEND_URL}/canvas/${currentSessionId}`, {
@@ -107,12 +166,8 @@ export default function App() {
           body: JSON.stringify({ nodes, edges })
         });
         setIsSaving(false);
-      } catch(e) { 
-        console.error("Save failed:", e);
-        setIsSaving(false); 
-      }
+      } catch(e) { setIsSaving(false); }
     }, 1500);
-
     return () => clearTimeout(timer);
   }, [nodes, edges, currentSessionId, token]);
 
@@ -203,17 +258,14 @@ export default function App() {
               if (data.nodes && data.nodes.length > 0) {
                   setNodes(data.nodes);
                   setEdges(data.edges);
-                  
-                  // Find the lowest node to set the next spawn position
                   let maxY = 100;
                   data.nodes.forEach(n => { if(n.position.y > maxY) maxY = n.position.y; });
                   lastYPosition.current = maxY + 200;
                   return;
               }
           }
-      } catch (err) { console.error("Failed to load canvas state", err); }
+      } catch (err) {}
 
-      // Fallback if no canvas data exists for this session yet
       setNodes([{ id: 'init', type: 'assistant_response', position: { x: 400, y: 100 }, data: { label: '⚡ **Session Linked:** Spatial Memory ready.' } }]);
       lastYPosition.current = 100;
   };
@@ -280,7 +332,6 @@ export default function App() {
       
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
-      
       let buffer = "";
       
       while (true) {
@@ -318,9 +369,7 @@ export default function App() {
                        return node;
                    }));
                 }
-            } catch (e) {
-                console.error("Chunk parsing error, waiting for more bytes...", e);
-            }
+            } catch (e) {}
           }
         }
       }
@@ -333,7 +382,19 @@ export default function App() {
           }
           return node;
       }));
-    } finally { setIsTyping(false); }
+    } finally { 
+      setIsTyping(false); 
+      // Force sync the completed AI text to the teammate's screen
+      setNodes(currentNodes => {
+        setEdges(currentEdges => {
+           if (ws.current?.readyState === WebSocket.OPEN) {
+             ws.current.send(JSON.stringify({ type: 'full_sync', nodes: currentNodes, edges: currentEdges }));
+           }
+           return currentEdges;
+        });
+        return currentNodes;
+      });
+    }
   };
 
   const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
@@ -410,10 +471,17 @@ export default function App() {
               AGENT OS {isSpeaking && <span className="text-[10px] text-emerald-400 animate-pulse ml-1">SPEAKING</span>}
             </div>
           </div>
-          <button onClick={() => { setVoiceMode(!voiceMode); window.speechSynthesis.cancel(); }} className={`pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voiceMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}>
-            {voiceMode ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-            Voice Mode
-          </button>
+          <div className="flex items-center gap-3 pointer-events-auto">
+             {/* ⚡ NEW SHARE LINK BUTTON */}
+             <button onClick={handleShare} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+               <Users className="w-3.5 h-3.5" /> Invite to Canvas
+             </button>
+
+             <button onClick={() => { setVoiceMode(!voiceMode); window.speechSynthesis.cancel(); }} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voiceMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}>
+               {voiceMode ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+               Voice Mode
+             </button>
+          </div>
         </header>
 
         <div className="flex-1 w-full h-full relative z-0">
@@ -450,7 +518,6 @@ export default function App() {
                   className="w-full bg-transparent text-zinc-100 placeholder:text-zinc-500 resize-none outline-none max-h-48 custom-scrollbar leading-relaxed text-base" rows={1}
                 />
                 <div className="flex items-center justify-between pt-2 mt-1">
-                  {/* 💾 Added Saving Indicator Here */}
                   <div className="flex items-center gap-1">
                     <FileUploadButton onUploadSuccess={fetchFiles} currentSessionId={currentSessionId} token={token} />
                     <div className={`text-[10px] font-medium px-2 flex items-center gap-1.5 transition-colors ${isSaving ? 'text-zinc-500' : 'text-emerald-500/70'}`}>

@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, MiniMap, useUpdateNodeInternals, Panel } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, Wand2 } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, LayoutGrid, Layers, Folder } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import dagre from 'dagre';
 
 // Custom SVG Github Component
 const GithubIcon = ({ className }) => (
@@ -16,37 +15,76 @@ const GithubIcon = ({ className }) => (
 );
 
 // ==========================================
-// 📐 DAGRE GRAPHING ALGORITHM (THE UNTANGLER)
+// 📐 SMART MASONRY GRID ALGORITHM (THE ULTIMATE UX)
 // ==========================================
-const dagreGraph = new dagre.graphlib.Graph();
-dagreGraph.setDefaultEdgeLabel(() => ({}));
+const getLayoutedElements = (nodes) => {
+  const visibleNodes = nodes.filter(n => !n.hidden);
+  const hiddenNodes = nodes.filter(n => n.hidden);
 
-const getLayoutedElements = (nodes, edges, direction = 'TB') => {
-  dagreGraph.setGraph({ rankdir: direction, ranksep: 150, nodesep: 150 });
-
-  nodes.forEach((node) => {
-    // We give it a generous bounding box to prevent large windows from overlapping
-    dagreGraph.setNode(node.id, { width: 550, height: 400 });
+  // 1. Group nodes into User-AI interaction pairs
+  const pairs = {};
+  visibleNodes.forEach(node => {
+    if (node.type === 'folder_node') {
+      pairs[node.id] = { folder: node };
+    } else {
+      const timeId = node.id.split('-')[1]; // Extract timestamp
+      if (!pairs[timeId]) pairs[timeId] = {};
+      if (node.type === 'user_input') pairs[timeId].user = node;
+      else pairs[timeId].ai = node;
+    }
   });
 
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
+  // 2. Sort chronologically
+  const sortedKeys = Object.keys(pairs).sort((a, b) => parseInt(a.replace(/\D/g,'')) - parseInt(b.replace(/\D/g,'')));
+
+  // 3. Define the Grid
+  const COLUMNS = 3; 
+  const X_SPACING = 750; // 750px wide per column
+  const columnHeights = new Array(COLUMNS).fill(100);
+
+  const layoutedVisible = [];
+
+  sortedKeys.forEach((key) => {
+    // Find the shortest column to place the next block (Masonry packing logic)
+    let minCol = 0;
+    let minHeight = columnHeights[0];
+    for (let i = 1; i < COLUMNS; i++) {
+      if (columnHeights[i] < minHeight) {
+        minHeight = columnHeights[i];
+        minCol = i;
+      }
+    }
+
+    const baseX = minCol * X_SPACING;
+    let baseY = columnHeights[minCol];
+
+    const pair = pairs[key];
+
+    if (pair.folder) {
+       layoutedVisible.push({ ...pair.folder, position: { x: baseX + 150, y: baseY } });
+       columnHeights[minCol] += 250; 
+    } else {
+       // Indent the User prompt slightly to the right for visual hierarchy
+       if (pair.user) {
+         layoutedVisible.push({ ...pair.user, position: { x: baseX + 100, y: baseY } });
+         baseY += 120; 
+       }
+       if (pair.ai) {
+         layoutedVisible.push({ ...pair.ai, position: { x: baseX, y: baseY } });
+         
+         // We estimate the height of the AI text block so the next node doesn't overlap it
+         const textLength = pair.ai.data?.label?.length || 300;
+         const estimatedHeight = Math.max(300, (textLength / 60) * 24); 
+         baseY += estimatedHeight + 150; // Add padding before the next interaction
+       } else {
+         baseY += 100;
+       }
+       
+       columnHeights[minCol] = baseY;
+    }
   });
 
-  dagre.layout(dagreGraph);
-
-  return nodes.map((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id);
-    return {
-      ...node,
-      targetPosition: 'top',
-      sourcePosition: 'bottom',
-      position: {
-        x: nodeWithPosition.x - 275,
-        y: nodeWithPosition.y - 200,
-      },
-    };
-  });
+  return [...layoutedVisible, ...hiddenNodes];
 };
 
 // ==========================================
@@ -134,6 +172,39 @@ const WindowControls = ({ isCollapsed, setIsCollapsed, onDelete }) => (
 );
 
 const handleStyle = "w-3 h-3 bg-indigo-500 border-2 border-zinc-950 opacity-30 hover:opacity-100 transition-opacity cursor-crosshair";
+
+// ==========================================
+// 📁 THE FOLDER NODE WIDGET
+// ==========================================
+const FolderNode = ({ id, data }) => {
+  const { setNodes } = useReactFlow();
+
+  const handleUnpack = () => {
+    setNodes((nds) => {
+      const filteredNodes = nds.filter((n) => n.id !== id);
+      return filteredNodes.map((n) => {
+        if (data.childIds?.includes(n.id)) {
+          return { ...n, hidden: false, selected: true }; 
+        }
+        return n;
+      });
+    });
+  };
+
+  return (
+    <div className="bg-zinc-900/90 backdrop-blur-xl border border-indigo-500/30 rounded-2xl p-4 shadow-2xl flex flex-col items-center justify-center gap-2 min-w-[160px] cursor-grab active:cursor-grabbing hover:border-indigo-400 transition-colors">
+      <div className="w-12 h-12 bg-indigo-500/10 rounded-full flex items-center justify-center border border-indigo-500/30">
+        <Folder className="w-6 h-6 text-indigo-400" />
+      </div>
+      <div className="text-xs font-bold text-zinc-300 tracking-wide mt-1">Archived Thread</div>
+      <div className="text-[10px] text-zinc-500">{data.childIds?.length || 0} nodes packed</div>
+      
+      <button onClick={handleUnpack} className="mt-3 text-[11px] font-medium bg-white/5 hover:bg-white/15 px-4 py-1.5 rounded-lg text-zinc-300 transition-colors nodrag border border-white/5">
+        Unpack Nodes
+      </button>
+    </div>
+  );
+};
 
 // ==========================================
 // 🧩 SPATIAL WIDGETS
@@ -252,27 +323,66 @@ const nodeTypes = {
   assistant_genui_image: ImageWidgetNode,
   assistant_genui_terminal: TerminalWidgetNode,
   assistant_genui_preview: WebPreviewNode,
+  folder_node: FolderNode, 
 };
 
 // ==========================================
-// 🕹️ THE AUTO-LAYOUT BUTTON WIDGET (MOVED!)
+// 🕹️ THE AUTO-LAYOUT & GROUPING DOCK 
 // ==========================================
-const LayoutControls = ({ nodes, edges }) => {
-  const { setNodes, fitView } = useReactFlow();
+const LayoutControls = ({ nodes }) => {
+  const { setNodes, fitView, getNodes } = useReactFlow();
 
   const onLayout = useCallback(() => {
-    const layoutedNodes = getLayoutedElements(nodes, edges);
+    const layoutedNodes = getLayoutedElements(nodes);
     setNodes([...layoutedNodes]);
-    // Smoothly pan the camera back to fit the new perfect layout
-    setTimeout(() => fitView({ duration: 800, padding: 0.5 }), 50);
-  }, [nodes, edges, setNodes, fitView]);
+    setTimeout(() => fitView({ duration: 800, padding: 0.5, maxZoom: 1 }), 50);
+  }, [nodes, setNodes, fitView]);
+
+  const onGroup = useCallback(() => {
+    const currentNodes = getNodes();
+    const selectedNodes = currentNodes.filter(n => n.selected && n.type !== 'folder_node');
+    
+    if (selectedNodes.length === 0) {
+        alert("Hold down the SHIFT key and drag your mouse to select nodes first!");
+        return;
+    }
+
+    const selectedIds = selectedNodes.map(n => n.id);
+
+    const xs = selectedNodes.map(n => n.position.x);
+    const ys = selectedNodes.map(n => n.position.y);
+    const centerX = Math.min(...xs) + (Math.max(...xs) - Math.min(...xs)) / 2;
+    const centerY = Math.min(...ys) + (Math.max(...ys) - Math.min(...ys)) / 2;
+
+    const folderId = `folder-${Date.now()}`;
+
+    setNodes(nds => {
+        const updated = nds.map(n => selectedIds.includes(n.id) ? { ...n, hidden: true, selected: false } : n);
+        updated.push({
+            id: folderId,
+            type: 'folder_node',
+            position: { x: centerX, y: centerY },
+            data: { childIds: selectedIds }
+        });
+        return updated;
+    });
+  }, [getNodes, setNodes]);
 
   return (
-    // ⬇️ Notice it is now bottom-left, hovering right above the input bar
-    <Panel position="bottom-left" className="mb-28 ml-[32px]">
-       <button onClick={onLayout} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-[0_0_30px_rgba(79,70,229,0.4)] border border-indigo-400/50 transition-all pointer-events-auto hover:scale-105 active:scale-95 group">
-         <Wand2 className="w-5 h-5 group-hover:rotate-12 transition-transform" /> Auto-Organize Map
-       </button>
+    <Panel position="top-right" style={{ marginTop: '120px', marginRight: '20px', zIndex: 2147483647 }}>
+       <div className="flex flex-col gap-3 bg-zinc-900/90 p-3 rounded-3xl border border-white/10 shadow-2xl backdrop-blur-xl w-[110px]">
+           <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest text-center border-b border-white/5 pb-2">OS Tools</div>
+           
+           <button onClick={onLayout} className="flex flex-col items-center justify-center gap-1.5 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 hover:text-indigo-100 p-3 rounded-2xl transition-all w-full aspect-square border border-indigo-500/30 hover:border-indigo-400">
+             <LayoutGrid className="w-6 h-6" />
+             <span className="text-[10px] font-semibold text-center leading-tight">Smart<br/>Grid</span>
+           </button>
+           
+           <button onClick={onGroup} className="flex flex-col items-center justify-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 p-3 rounded-2xl transition-all w-full aspect-square border border-white/5 hover:border-white/20">
+             <Layers className="w-6 h-6" />
+             <span className="text-[10px] font-semibold text-center leading-tight">Pack<br/>Selected</span>
+           </button>
+       </div>
     </Panel>
   );
 };
@@ -283,12 +393,13 @@ export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesC
       <ReactFlow 
         nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} nodeTypes={nodeTypes} 
         fitView fitViewOptions={{ maxZoom: 1, padding: 0.5 }} snapToGrid={true} snapGrid={[24, 24]}
+        panOnScroll={true} selectionOnDrag={true} panOnDrag={[1, 2]}
       >
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
         
-        {/* Inject the magic button here */}
-        <LayoutControls nodes={nodes} edges={edges} />
+        {/* Inject the magic dock here */}
+        <LayoutControls nodes={nodes} />
 
         <MiniMap position="bottom-right" zoomable={true} pannable={true} nodeColor="#4f46e5" maskColor="rgba(0, 0, 0, 0.7)" style={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', marginBottom: '80px' }} />
       </ReactFlow>
