@@ -126,7 +126,7 @@ export default function App() {
     if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'edges', changes }));
   }, []);
 
-  // --- 🤖 THE MULTI-AGENT PIPELINE ENGINE ---
+  // --- 🤖 THE MULTI-AGENT PIPELINE ENGINE (NOW SUPPORTS GEN-UI!) ---
   const runAgentPipeline = async (targetId, inputContext, role) => {
     setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'running', label: "" } } : n));
 
@@ -160,9 +160,25 @@ export default function App() {
                         const jsonString = line.substring(6);
                         const data = JSON.parse(jsonString);
 
-                        if (data.token) {
+                        // If the agent decides to build a UI widget, transform the node!
+                        if (data.type === 'genui_event') {
+                            if (data.widget_type === 'image_generated') {
+                                setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_image', data: { ...node.data, image_url: data.image_url, isLoading: false } } : node));
+                            } else if (data.widget_type === 'terminal_output') {
+                                setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_terminal', data: { ...node.data, output: data.output } } : node));
+                            } else if (data.widget_type === 'web_preview') {
+                                setNodes((nds) => nds.map((node) => node.id === targetId ? { ...node, type: 'assistant_genui_preview', data: { ...node.data, htmlCode: data.htmlCode } } : node));
+                            }
+                        } 
+                        // Otherwise, it's just normal text talking
+                        else if (data.token) {
                             fullAiText += data.token;
-                            setNodes(nds => nds.map(node => node.id === targetId ? { ...node, data: { ...node.data, label: fullAiText } } : node));
+                            setNodes(nds => nds.map(node => {
+                                if (node.id === targetId && !['assistant_genui_image', 'assistant_genui_terminal', 'assistant_genui_preview'].includes(node.type)) {
+                                    return { ...node, data: { ...node.data, label: fullAiText } };
+                                }
+                                return node;
+                            }));
                         }
                     } catch (e) {}
                 }
@@ -182,7 +198,9 @@ export default function App() {
             downstreamEdges.forEach(edge => {
                 const nextNode = nodesRef.current.find(n => n.id === edge.target);
                 if (nextNode && nextNode.type === 'persona_agent') {
-                    runAgentPipeline(nextNode.id, fullAiText, nextNode.data.role);
+                    // Pass whatever the node's final output was (text or HTML) to the next agent!
+                    const outputToPass = nextNode.data.htmlCode || nextNode.data.output || fullAiText;
+                    runAgentPipeline(nextNode.id, outputToPass, nextNode.data.role);
                 }
             });
         }, 500);
@@ -201,8 +219,9 @@ export default function App() {
     const targetNode = nodesRef.current.find(n => n.id === connection.target);
 
     if (sourceNode && targetNode && targetNode.type === 'persona_agent') {
-        if (sourceNode.data?.label) {
-            runAgentPipeline(targetNode.id, sourceNode.data.label, targetNode.data.role);
+        const textToProcess = sourceNode.data?.htmlCode || sourceNode.data?.output || sourceNode.data?.label || "";
+        if (textToProcess) {
+            runAgentPipeline(targetNode.id, textToProcess, targetNode.data.role);
         }
     }
   }, []);
