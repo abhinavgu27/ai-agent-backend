@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ReactFlow, Background, Controls, Handle, Position, useUpdateNodeInternals, Panel, MiniMap } from '@xyflow/react';
+// ⚡ FIX: useReactFlow is actually imported this time!
+import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, useUpdateNodeInternals, Panel, MiniMap } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Sparkles, Brain, Bot, User, Terminal, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, LayoutGrid, Layers, Folder, Code2, Bug, PenTool } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -25,7 +26,6 @@ const getLayoutedElements = (nodes) => {
   const floatingNodes = [];
 
   visibleNodes.forEach(node => {
-    // We let the GitHub files float exactly where they spawned so the tree isn't destroyed
     if (node.type === 'github_file') {
         floatingNodes.push(node);
     } else if (node.type === 'folder_node' || node.type === 'persona_agent') {
@@ -35,7 +35,7 @@ const getLayoutedElements = (nodes) => {
       if (!timeId) { floatingNodes.push(node); return; }
       if (!pairs[timeId]) pairs[timeId] = {};
       if (node.type === 'user_input') pairs[timeId].user = node;
-      else pairs[timeId].ai = node; // github_repo replaces the AI node, so it slots in perfectly!
+      else pairs[timeId].ai = node; 
     }
   });
 
@@ -89,11 +89,24 @@ const getLayoutedElements = (nodes) => {
 const RenderMessage = ({ content = "" }) => {
   const [copiedCode, setCopiedCode] = useState(null);
   const safeContent = typeof content === 'string' ? content : String(content || "");
-  const cleanContent = safeContent.replace("*(🌐 Scanning the live web...)*\n\n", "").replace("*(🐙 Cloning GitHub Repository...)*\n\n", "").replace(/\[VISUAL DATA FROM IMAGE .*?\]: /, "👁️ **Visual Intel Acquired:** ");
+  
+  const hasWebSearch = safeContent.includes("*(🌐 Scanning the live web...)*");
+  const hasGithub = safeContent.includes("*(🐙 Cloning GitHub Repository...)*");
+  const hasVisualIntel = safeContent.includes("[VISUAL DATA FROM IMAGE");
+
+  const cleanContent = safeContent
+    .replace("*(🌐 Scanning the live web...)*\n\n", "")
+    .replace("*(🐙 Cloning GitHub Repository...)*\n\n", "")
+    .replace(/\[VISUAL DATA FROM IMAGE .*?\]: /, "👁️ **Visual Intel Acquired:** ");
+    
   const handleCopy = (text) => { navigator.clipboard.writeText(text); setCopiedCode(text); setTimeout(() => setCopiedCode(null), 2000); };
 
   return (
     <div className="flex flex-col gap-3 w-full leading-relaxed text-zinc-200">
+      {hasWebSearch && <div className="flex items-center gap-2 text-emerald-400 text-xs font-medium px-3 py-1.5 bg-emerald-400/10 rounded-lg w-fit border border-emerald-400/20 animate-pulse"><Globe className="w-4 h-4 animate-spin-slow" /> Gathering live intel from the web...</div>}
+      {hasGithub && <div className="flex items-center gap-2 text-purple-400 text-xs font-medium px-3 py-1.5 bg-purple-400/10 rounded-lg w-fit border border-purple-400/20 animate-pulse"><GithubIcon className="w-4 h-4" /> Analyzing GitHub Repository...</div>}
+      {hasVisualIntel && <div className="flex items-center gap-2 text-indigo-400 text-xs font-medium px-3 py-1.5 bg-indigo-400/10 rounded-lg w-fit border border-indigo-400/20 mb-2"><Bot className="w-4 h-4" /> Image Analysis Complete</div>}
+      
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -112,7 +125,11 @@ const RenderMessage = ({ content = "" }) => {
               </div>
             ) : (<code className="bg-white/10 text-indigo-300 px-1.5 py-0.5 rounded-md font-mono text-sm" {...props}>{children}</code>)
           },
+          table({children}) { return <div className="overflow-x-auto my-4"><table className="w-full text-sm text-left border-collapse border border-white/10">{children}</table></div> },
+          th({children}) { return <th className="px-4 py-3 bg-white/5 border-b border-white/10 font-semibold">{children}</th> },
+          td({children}) { return <td className="px-4 py-3 border-b border-white/5">{children}</td> },
           p({children}) { return <p className="mb-4 last:mb-0">{children}</p> },
+          ul({children}) { return <ul className="list-disc list-inside mb-4 space-y-1">{children}</ul> },
         }}
       >
         {cleanContent}
@@ -131,7 +148,7 @@ const WindowControls = ({ isCollapsed, setIsCollapsed, onDelete }) => (
 const handleStyle = "w-3 h-3 bg-indigo-500 border-2 border-zinc-950 opacity-30 hover:opacity-100 transition-opacity cursor-crosshair";
 
 // ==========================================
-// 🐙 NEW: GITHUB WIDGETS
+// 🐙 GITHUB WIDGETS
 // ==========================================
 const GithubRepoNode = ({ id, data }) => {
   const { setNodes, setEdges } = useReactFlow();
