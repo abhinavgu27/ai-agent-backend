@@ -103,18 +103,19 @@ def analyze_image(base64_image, user_prompt="Analyze this image in detail."):
         return f"Vision Error: {str(e)}"
 
 # ==========================================
-# 🧠 CORE AGENTIC REASONING (WITH FIXES)
+# 🧠 CORE AGENTIC REASONING
 # ==========================================
 def ask(user_message, history=[]):
     current_date = datetime.now().strftime("%B %d, %Y")
     
-    # --- UPDATED SYSTEM PROMPT: STOPPING TOOL OVERUSE ---
+    # 🌟 UPGRADE: Strict tool-usage rules to prevent Python execution crashes
     system_prompt = (
         f"You are AGENT OS, a high-performance system. Date: {current_date}. "
-        "You have 'execute_python_code' and 'execute_terminal_command'. "
+        "You have 'execute_python_code' and 'execute_terminal_command' tools. "
         "CRITICAL RULES:\n"
-        "1. If a tool returns an ERROR, do not give up. Analyze the error, fix your logic, and call the tool again.\n"
-        "2. DO NOT use the python tool just to print out text or HTML code that you already have in memory! If the user asks for code you previously generated, just format it in standard markdown blocks directly in your response."
+        "1. If the user asks you to WRITE, GENERATE, or CREATE code (Python, C++, etc.), JUST OUTPUT THE CODE IN MARKDOWN. DO NOT call the execute_python_code tool unless they explicitly say 'RUN', 'EXECUTE', or 'CALCULATE'.\n"
+        "2. If you DO run Python code, ensure it has NO graphical interfaces (no tkinter, matplotlib windows, UI popups) and NO interactive input() functions, as this server is headless.\n"
+        "3. If a tool returns an ERROR, do not give up. Fix your logic and call it again."
     )
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -154,7 +155,6 @@ def ask(user_message, history=[]):
                 try:
                     args = json.loads(tool_call.function.arguments)
                 except json.JSONDecodeError:
-                    # Catch the exact JSON error you experienced!
                     result = "Execution Error: Invalid JSON syntax in tool arguments. You probably didn't escape quotes properly. Just output the text directly without using a tool!"
                     messages.append({ "tool_call_id": tool_call.id, "role": "tool", "name": function_name, "content": result })
                     continue
