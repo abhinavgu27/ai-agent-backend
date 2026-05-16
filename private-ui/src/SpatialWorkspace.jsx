@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, MiniMap, useUpdateNodeInternals } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, Github } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Code2, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-// ⚠️ Removed the buggy vscDarkPlus import that was crashing Vite!
+
+// Custom SVG Github Component so version mismatch errors never crash your app again!
+const GithubIcon = ({ className }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+    <path d="M9 18c-4.51 2-5-2-7-2" />
+  </svg>
+);
 
 // ==========================================
 // 🎨 PRO MESSAGE RENDERER
@@ -13,7 +20,6 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 const RenderMessage = ({ content = "" }) => {
   const [copiedCode, setCopiedCode] = useState(null);
 
-  // Ultimate safety net to prevent string-parsing crashes
   const safeContent = typeof content === 'string' ? content : String(content || "");
   
   const hasWebSearch = safeContent.includes("*(🌐 Scanning the live web...)*");
@@ -36,7 +42,7 @@ const RenderMessage = ({ content = "" }) => {
       )}
       {hasGithub && (
         <div className="flex items-center gap-2 text-purple-400 text-xs font-medium px-3 py-1.5 bg-purple-400/10 rounded-lg w-fit border border-purple-400/20 animate-pulse">
-          <Github className="w-4 h-4 animate-pulse" /> Analyzing GitHub Repository...
+          <GithubIcon className="w-4 h-4" /> Analyzing GitHub Repository...
         </div>
       )}
       {hasVisualIntel && (
@@ -59,7 +65,6 @@ const RenderMessage = ({ content = "" }) => {
                     {copiedCode === codeString ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <span className="text-[11px]">Copy</span>}
                   </button>
                 </div>
-                {/* ⚠️ Removed the style prop to fall back to the safe default theme */}
                 <SyntaxHighlighter language={match[1]} PreTag="div" customStyle={{ margin: 0, padding: '1rem', backgroundColor: 'transparent' }} {...props}>
                   {codeString}
                 </SyntaxHighlighter>
@@ -115,7 +120,7 @@ const ImageWidgetNode = ({ id, data }) => {
       {!isCollapsed && (
         <div className="p-4 nodrag">
             {data?.isLoading ? (
-              <div className="w-full aspect-square bg-zinc-950 rounded-xl flex items-center justify-center border border-dashed border-white/5 gap-2"><Brain className="w-8 h-8 text-zinc-700 animate-pulse" /><span className="text-zinc-500 text-xs font-mono animate-pulse">Generating...</span></div>
+              <div className="w-full aspect-square bg-zinc-950 rounded-xl flex flex-col items-center justify-center border border-dashed border-white/5 gap-2"><Brain className="w-8 h-8 text-zinc-700 animate-pulse" /><span className="text-zinc-500 text-xs font-mono animate-pulse">Generating...</span></div>
             ) : (<img src={data?.image_url} alt="Generated" className="w-full aspect-square rounded-xl object-cover pointer-events-none" />)}
         </div>
       )}
