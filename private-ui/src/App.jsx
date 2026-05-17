@@ -71,6 +71,8 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   const [authInputUser, setAuthInputUser] = useState("");
   const [authInputPass, setAuthInputPass] = useState("");
+  
+  const [authWorkspaceId, setAuthWorkspaceId] = useState(""); 
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   
   const [input, setInput] = useState('');
@@ -176,7 +178,6 @@ export default function App() {
 
     let fullAiText = "";
     try {
-        // ⚡ SPECIAL INSTRUCTION FOR QA TESTER TO ENABLE AUTO-HEALING
         const agentPrompt = role === 'QA Tester' 
             ? `You are a strict QA Tester. Review the code/input. If it contains bugs, errors, or fails edge cases, list them and end your response EXACTLY with [STATUS: REJECTED]. If the code is absolutely flawless, end your response EXACTLY with [STATUS: PASSED].\n\nINPUT:\n${inputContext}`
             : `You are a specialized ${role}. Analyze the following input and provide your expert output. Do not break character.\n\nINPUT:\n${inputContext}`;
@@ -224,11 +225,10 @@ export default function App() {
         setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, status: 'idle' } } : n));
         if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ type: 'full_sync', nodes: nodesRef.current, edges: edgesRef.current }));
 
-        // ⚡ LOOP HALTING LOGIC
         if (role === 'QA Tester' && fullAiText.includes('[STATUS: PASSED]')) {
             console.log("🟢 QA PASSED. Halting Auto-Healing Loop.");
             setNodes(nds => nds.map(n => n.id === targetId ? { ...n, data: { ...n.data, label: fullAiText + "\n\n🚀 **PIPELINE APPROVED & HALTED.**" } } : n));
-            return; // Stops downstream execution!
+            return; 
         }
 
         setTimeout(() => {
@@ -270,11 +270,10 @@ export default function App() {
     }
   }, [token]);
 
+  // ⚡ THE FIX: This function now ONLY copies the numeric ID. No URL, no localhost.
   const handleShare = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('workspace', currentSessionId);
-    navigator.clipboard.writeText(url.toString());
-    alert("🔗 Co-Op Link Copied! Send this to your teammate to join your canvas.");
+    navigator.clipboard.writeText(currentSessionId);
+    alert(`🔗 Workspace ID Copied: ${currentSessionId}\n\nSend this ID to your teammate so they can paste it into their login screen!`);
   };
 
   useEffect(() => {
@@ -310,6 +309,12 @@ export default function App() {
               setUsername(authInputUser);
               localStorage.setItem("agent_os_token", data.access_token);
               localStorage.setItem("agent_os_user", authInputUser);
+              
+              if (authWorkspaceId.trim() !== "") {
+                  setCurrentSessionId(authWorkspaceId.trim());
+              } else {
+                  setCurrentSessionId(Date.now().toString());
+              }
           }
       } catch (err) { setAuthError(err.message); } 
       finally { setIsAuthenticating(false); }
@@ -323,6 +328,7 @@ export default function App() {
       setNodes([]);
       setEdges([]); 
       setSessions([]);
+      setAuthWorkspaceId("");
       window.speechSynthesis.cancel();
   };
 
@@ -543,8 +549,19 @@ export default function App() {
                   <form onSubmit={handleAuth} className="flex flex-col gap-4">
                       <input type="text" placeholder="Workspace Username" value={authInputUser} onChange={e => setAuthInputUser(e.target.value)} required className="w-full px-4 py-3.5 rounded-xl bg-zinc-950/50 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-600" />
                       <input type="password" placeholder="Passcode" value={authInputPass} onChange={e => setAuthInputPass(e.target.value)} required className="w-full px-4 py-3.5 rounded-xl bg-zinc-950/50 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-600" />
-                      <button type="submit" disabled={isAuthenticating} className="w-full py-3.5 mt-2 rounded-xl bg-white text-zinc-950 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50">
-                        {isAuthenticating ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (authMode === "login" ? "Initialize Link" : "Create Workspace")}
+                      
+                      {authMode === "login" && (
+                          <input 
+                              type="text" 
+                              placeholder="Workspace ID (Optional - paste to join)" 
+                              value={authWorkspaceId} 
+                              onChange={e => setAuthWorkspaceId(e.target.value)} 
+                              className="w-full px-4 py-3.5 rounded-xl bg-zinc-950/50 border border-emerald-500/30 text-emerald-400 font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all placeholder:text-zinc-600" 
+                          />
+                      )}
+
+                      <button type="submit" disabled={isAuthenticating} className="w-full py-3.5 mt-2 rounded-xl bg-white text-zinc-950 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                        {isAuthenticating ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (authMode === "login" ? (authWorkspaceId.trim() ? "Connect to Canvas" : "Initialize Link") : "Create Workspace")}
                       </button>
                   </form>
                   <div className="text-center mt-6 text-sm text-zinc-500">
@@ -620,6 +637,7 @@ export default function App() {
               onEdgesChange={onEdgesChange} 
               onConnect={onConnect} 
               setNodes={setNodes} 
+              workspaceId={currentSessionId} // Ensure ID is passed down!
            />
         </div>
 

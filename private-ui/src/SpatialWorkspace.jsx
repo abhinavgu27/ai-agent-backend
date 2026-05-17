@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ReactFlow, Background, Controls, Handle, Position, useReactFlow, useUpdateNodeInternals, Panel, MiniMap } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Sparkles, Brain, Bot, User, Terminal, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, LayoutGrid, Layers, Folder, Code2, Bug, PenTool, Rocket, ExternalLink } from 'lucide-react';
+import { Sparkles, Brain, Bot, User, Terminal, Check, Copy, Globe, ChevronUp, ChevronDown, X, Pencil, LayoutGrid, Layers, Folder, Code2, Bug, PenTool, Rocket, ExternalLink, MousePointerClick, Share2, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+
+// Bypass for Windows WebView2 Security
+let dragPayload = { type: null, role: null };
 
 // Custom SVG Github Component
 const GithubIcon = ({ className }) => (
@@ -17,7 +20,6 @@ const GithubIcon = ({ className }) => (
 const getLayoutedElements = (nodes) => {
   const visibleNodes = nodes.filter(n => !n.hidden);
   const hiddenNodes = nodes.filter(n => n.hidden);
-
   const pairs = {};
   const floatingNodes = [];
 
@@ -36,7 +38,6 @@ const getLayoutedElements = (nodes) => {
   });
 
   const sortedKeys = Object.keys(pairs).sort((a, b) => parseInt(a.replace(/\D/g,'')) - parseInt(b.replace(/\D/g,'')));
-
   const COLUMNS = 3; 
   const X_SPACING = 750; 
   const columnHeights = new Array(COLUMNS).fill(100);
@@ -394,6 +395,7 @@ const TextNode = ({ id, data, isUser }) => {
   );
 };
 
+// ⚡ ALL NODE TYPES DEFINED AND MAPPED HERE
 const nodeTypes = {
   user_input: (props) => <TextNode {...props} isUser={true} />,
   assistant_response: (props) => <TextNode {...props} isUser={false} />,
@@ -445,11 +447,9 @@ const LayoutControls = ({ nodes }) => {
   );
 };
 
-const AgentRoster = () => {
+const AgentRoster = ({ spawnAgent }) => {
     const onDragStart = (event, nodeType, role) => {
-      event.dataTransfer.setData('application/reactflow/type', nodeType);
-      event.dataTransfer.setData('application/reactflow/role', role);
-      // ⚡ THE FIX: Fallback payload for strict WebView2 security policies
+      dragPayload = { type: nodeType, role: role };
       event.dataTransfer.setData('text/plain', role); 
       event.dataTransfer.effectAllowed = 'move';
     };
@@ -457,19 +457,20 @@ const AgentRoster = () => {
     return (
       <Panel position="top-left" className="mt-20 ml-4 z-[999]">
          <div className="bg-zinc-900/90 p-4 rounded-3xl border border-white/10 shadow-2xl backdrop-blur-xl w-[220px] flex flex-col gap-3">
-             <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-white/5 pb-2 flex items-center gap-2">
-                 <Bot className="w-3.5 h-3.5" /> Agent Roster
+             <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-white/5 pb-2 flex items-center justify-between">
+                 <div className="flex items-center gap-2"><Bot className="w-3.5 h-3.5" /> Agent Roster</div>
              </div>
-             <div className="text-[10px] text-zinc-500 mb-1">Drag agents onto the canvas</div>
-             <div onDragStart={(e) => onDragStart(e, 'persona_agent', 'Lead Developer')} draggable className="flex items-center gap-3 p-3 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-xl cursor-grab active:cursor-grabbing transition-colors group">
+             <div className="text-[10px] text-zinc-500 mb-1 flex items-center gap-1"><MousePointerClick className="w-3 h-3"/> Click or Drag to spawn</div>
+             
+             <div onClick={() => spawnAgent('Lead Developer', 'persona_agent')} onDragStart={(e) => onDragStart(e, 'persona_agent', 'Lead Developer')} draggable className="flex items-center gap-3 p-3 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-xl cursor-pointer transition-colors group">
                  <Code2 className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
                  <span className="text-xs font-semibold text-emerald-100">Lead Developer</span>
              </div>
-             <div onDragStart={(e) => onDragStart(e, 'persona_agent', 'QA Tester')} draggable className="flex items-center gap-3 p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl cursor-grab active:cursor-grabbing transition-colors group">
+             <div onClick={() => spawnAgent('QA Tester', 'persona_agent')} onDragStart={(e) => onDragStart(e, 'persona_agent', 'QA Tester')} draggable className="flex items-center gap-3 p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-xl cursor-pointer transition-colors group">
                  <Bug className="w-4 h-4 text-red-400 group-hover:scale-110 transition-transform" />
                  <span className="text-xs font-semibold text-red-100">QA Tester</span>
              </div>
-             <div onDragStart={(e) => onDragStart(e, 'persona_agent', 'UI Designer')} draggable className="flex items-center gap-3 p-3 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/20 rounded-xl cursor-grab active:cursor-grabbing transition-colors group">
+             <div onClick={() => spawnAgent('UI Designer', 'persona_agent')} onDragStart={(e) => onDragStart(e, 'persona_agent', 'UI Designer')} draggable className="flex items-center gap-3 p-3 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/20 rounded-xl cursor-pointer transition-colors group">
                  <PenTool className="w-4 h-4 text-pink-400 group-hover:scale-110 transition-transform" />
                  <span className="text-xs font-semibold text-pink-100">UI Designer</span>
              </div>
@@ -478,18 +479,30 @@ const AgentRoster = () => {
     );
 };
 
-export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesChange, onConnect, setNodes }) {
+export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesChange, onConnect, setNodes, workspaceId }) {
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const [copiedId, setCopiedId] = useState(false);
 
-  // ⚡ THE FIX: Explicitly intercept and authorize the dragover event
+  const handleCopyId = () => {
+    navigator.clipboard.writeText(workspaceId);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  };
+
+  const spawnAgent = useCallback((role, type) => {
+    if (!reactFlowInstance) return;
+    const position = reactFlowInstance.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    const newNode = { id: `agent-${Date.now()}`, type, position, data: { role: role, label: "", status: 'idle' } };
+    setNodes((nds) => nds.concat(newNode));
+  }, [reactFlowInstance, setNodes]);
+
   const onDragOver = useCallback((event) => {
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
-  // ⚡ THE FIX: Aggressively block the native dragenter event from rejecting the drop
   const onDragEnter = useCallback((event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -497,30 +510,36 @@ export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesC
 
   const onDrop = useCallback((event) => {
     event.preventDefault();
-    const type = event.dataTransfer.getData('application/reactflow/type');
-    const role = event.dataTransfer.getData('application/reactflow/role');
+    event.stopPropagation();
     
-    if (typeof type === 'undefined' || !type || !reactFlowInstance || !setNodes) return;
-
+    const type = dragPayload.type;
+    const role = dragPayload.role;
+    
+    if (!type || !reactFlowInstance || !setNodes) return;
     const position = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    const newNode = {
-      id: `agent-${Date.now()}`,
-      type,
-      position,
-      data: { role: role, label: "", status: 'idle' },
-    };
+    const newNode = { id: `agent-${Date.now()}`, type, position, data: { role: role, label: "", status: 'idle' } };
     setNodes((nds) => nds.concat(newNode));
+    dragPayload = { type: null, role: null };
   }, [reactFlowInstance, setNodes]);
 
   return (
-    // ⚡ THE FIX: Listeners moved to the outermost div
-    <div 
-      className="w-full h-full bg-[#09090b]" 
-      ref={reactFlowWrapper}
-      onDragOver={onDragOver}
-      onDragEnter={onDragEnter} 
-      onDrop={onDrop}
-    >
+    <div className="w-full h-full relative" ref={reactFlowWrapper} onDragOver={onDragOver} onDragEnter={onDragEnter} onDrop={onDrop}>
+      
+      {/* ⚡ NEW: Multiplayer Workspace ID Bar */}
+      {workspaceId && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[999] flex items-center gap-3 bg-zinc-900/90 backdrop-blur-xl border border-white/10 px-4 py-2 rounded-2xl shadow-2xl">
+          <div className="flex items-center gap-2">
+            <Share2 className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Workspace ID:</span>
+            <span className="text-xs text-zinc-100 font-mono bg-black px-2 py-1 rounded-md">{workspaceId}</span>
+          </div>
+          <button onClick={handleCopyId} className="flex items-center gap-1.5 text-[10px] font-bold bg-white/5 hover:bg-white/15 text-zinc-300 px-3 py-1.5 rounded-lg transition-colors border border-white/5">
+            {copiedId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            {copiedId ? "COPIED" : "COPY"}
+          </button>
+        </div>
+      )}
+
       <ReactFlow 
         nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} nodeTypes={nodeTypes} 
         fitView fitViewOptions={{ maxZoom: 1, padding: 0.5 }} snapToGrid={true} snapGrid={[24, 24]}
@@ -529,8 +548,7 @@ export default function SpatialWorkspace({ nodes, edges, onNodesChange, onEdgesC
       >
         <Background color="#2a2a2a" gap={24} size={2} />
         <Controls className="bg-zinc-900 border border-white/10 rounded-lg fill-white shadow-xl" />
-        <LayoutControls nodes={nodes} setNodes={setNodes} fitView={() => {}} getNodes={() => nodes} />
-        <AgentRoster />
+        <AgentRoster spawnAgent={spawnAgent} />
         <MiniMap position="bottom-right" zoomable={true} pannable={true} nodeColor="#4f46e5" maskColor="rgba(0, 0, 0, 0.7)" style={{ backgroundColor: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', marginBottom: '80px' }} />
       </ReactFlow>
     </div>
